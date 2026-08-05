@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-08-05
+
+### Fixed
+
+- `costmaxx --version` via plain `go install` now reports the module version
+  (build-info fallback; the previous attempt bound the version before build
+  info was read)
+
 ## [0.1.1] - 2026-08-05
 
 ### Fixed

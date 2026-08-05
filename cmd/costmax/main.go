@@ -30,12 +30,15 @@ var adapter *codex.Adapter
 // module version recorded in the build info.
 var version = "dev"
 
+// init runs after package-level variables are initialized, so assigning
+// rootCmd.Version here (not in the struct literal) is what actually sticks.
 func init() {
 	if version == "dev" {
 		if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
 			version = bi.Main.Version
 		}
 	}
+	rootCmd.Version = version
 }
 
 func main() {
@@ -46,11 +49,10 @@ func main() {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "costmax",
-	Short: "CostMax - local-first efficiency layer for coding agents",
+	Use:     "costmax",
+	Short:   "CostMax - local-first efficiency layer for coding agents",
 	Long: `CostMax gives coding agents the smallest sufficient working context
 and measures whether that saves resources without hurting verified outcomes.`,
-	Version: version,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if cmd.Name() == "help" || cmd.Name() == "completion" {
 			return nil
