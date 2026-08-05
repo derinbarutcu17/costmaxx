@@ -1,5 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">
-  <rect width="960" height="540" fill="#0a0a0b"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="600" viewBox="0 0 960 600" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">
+  <rect width="960" height="600" fill="#0a0a0b"/>
+  <g transform="translate(0,26)">
   <text x="30" y="32" font-size="16" font-weight="700" fill="#f4f4f5">The same failing test run, two ways</text>
   <text x="30" y="50" font-size="11" fill="#71717a">what the model reads without CostMax · what it reads with costmax_run</text>
 
@@ -58,4 +59,5 @@
   </g>
 
   <text x="480" y="500" font-size="13" fill="#71717a" text-anchor="middle">1,377 <tspan fill="#f4f4f5">to</tspan> 54 estimated tokens · <tspan fill="#22d3ee">89.6% less</tspan> · full evidence preserved 1:1</text>
+  </g>
 </svg>
