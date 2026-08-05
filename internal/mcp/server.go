@@ -1,0 +1,479 @@
+package mcp
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"strings"
+	"syscall"
+
+	"github.com/google/uuid"
+
+	"github.com/derinbarutcu17/costmaxx/internal/artifacts"
+	"github.com/derinbarutcu17/costmaxx/internal/config"
+	"github.com/derinbarutcu17/costmaxx/internal/events"
+	"github.com/derinbarutcu17/costmaxx/internal/privacy"
+	"github.com/derinbarutcu17/costmaxx/internal/reducers"
+	"github.com/derinbarutcu17/costmaxx/internal/store"
+)
+
+type Server struct {
+	cfg        *config.Config
+	reducers   *reducers.Registry
+	classifier *events.Classifier
+	artStore   *artifacts.Store
+	db         *store.DB
+	redactor   *privacy.Redactor
+	sessionID  string
+}
+
+func NewServer(cfg *config.Config) (*Server, error) {
+	dirs := []string{cfg.Core.DataDir, cfg.Core.LogDir, cfg.Store.ArtifactDir}
+	for _, d := range dirs {
+		if err := mkdirAll(d, 0700); err != nil {
+			return nil, fmt.Errorf("mkdir %s: %w", d, err)
+		}
+	}
+
+	db, err := store.Open(cfg.Store.DBPath)
+	if err != nil {
+		return nil, fmt.Errorf("open db: %w", err)
+	}
+
+	artStore, err := artifacts.NewStore(cfg.Store.ArtifactDir, cfg.Store.MaxArtifactSize)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("artifact store: %w", err)
+	}
+
+	return &Server{
+		cfg:        cfg,
+		reducers:   reducers.NewRegistry(cfg),
+		classifier: events.NewClassifier(),
+		artStore:   artStore,
+		db:         db,
+		redactor:   privacy.NewRedactor(),
+		sessionID:  "mcp-" + uuid.New().String(),
+	}, nil
+}
+
+func (s *Server) Close() error {
+	return s.db.Close()
+}
+
+func (s *Server) Serve(r io.Reader, w io.Writer) error {
+	scanner := bufio.NewScanner(r)
+	// Use a large buffer for potentially large messages
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+
+		var req jsonRPCRequest
+		if err := json.Unmarshal(line, &req); err != nil {
+			writeError(w, json.RawMessage{}, -32700, "Parse error: "+err.Error())
+			continue
+		}
+
+		resp := s.handle(req)
+		if req.isNotification() {
+			continue
+		}
+		data, _ := json.Marshal(resp)
+		fmt.Fprintln(w, string(data))
+	}
+	return scanner.Err()
+}
+
+type jsonRPCRequest struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id,omitempty"`
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params,omitempty"`
+}
+
+type jsonRPCResponse struct {
+	JSONRPC string    `json:"jsonrpc"`
+	ID      any       `json:"id,omitempty"`
+	Result  any       `json:"result,omitempty"`
+	Error   *rpcError `json:"error,omitempty"`
+}
+
+type rpcError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+// isNotification returns true if the request has no id field (JSON-RPC notification).
+// A request with "id": null is a regular request, not a notification.
+func (r *jsonRPCRequest) isNotification() bool {
+	return len(r.ID) == 0
+}
+
+type toolDef struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	InputSchema any    `json:"inputSchema"`
+}
+
+type toolCallResult struct {
+	Content []contentItem `json:"content"`
+	IsError bool          `json:"isError"`
+}
+
+type contentItem struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+func (s *Server) handle(req jsonRPCRequest) jsonRPCResponse {
+	id := json.RawMessage(req.ID)
+	switch req.Method {
+	case "initialize":
+		return s.handleInitialize(req)
+	case "notifications/initialized":
+		return jsonRPCResponse{JSONRPC: "2.0"}
+	case "tools/list":
+		return s.handleToolList(req)
+	case "tools/call":
+		return s.handleToolCall(req)
+	case "resources/read":
+		return s.handleResourceRead(req)
+	default:
+		return jsonRPCResponse{
+			JSONRPC: "2.0",
+			ID:      id,
+			Error:   &rpcError{Code: -32601, Message: "Method not found: " + req.Method},
+		}
+	}
+}
+
+func (s *Server) handleInitialize(req jsonRPCRequest) jsonRPCResponse {
+	return jsonRPCResponse{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+		Result: map[string]any{
+			"protocolVersion": "2024-11-05",
+			"capabilities": map[string]any{
+				"tools":     map[string]any{},
+				"resources": map[string]any{},
+			},
+			"serverInfo": map[string]string{
+				"name":    "costmaxx",
+				"version": "1.0.0",
+			},
+		},
+	}
+}
+
+func (s *Server) handleToolList(req jsonRPCRequest) jsonRPCResponse {
+	return jsonRPCResponse{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+		Result: map[string]any{
+			"tools": []toolDef{
+				{
+					Name:        "costmax_run",
+					Description: "Execute a local command and return a compact summary. Raw output is stored as a content-addressed artifact and retrievable by the returned artifact_id. Use this instead of Bash when the command may produce large output that the model does not need to see in full.",
+					InputSchema: map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"command": map[string]any{
+								"type":        "string",
+								"description": "Shell command to execute",
+							},
+							"cwd": map[string]any{
+								"type":        "string",
+								"description": "Working directory (defaults to current directory)",
+							},
+						},
+						"required": []string{"command"},
+					},
+				},
+			},
+		},
+	}
+}
+
+func (s *Server) handleToolCall(req jsonRPCRequest) jsonRPCResponse {
+	var params struct {
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errorResponse(req.ID, -32602, "Invalid params: "+err.Error())
+	}
+
+	if params.Name != "costmax_run" {
+		return errorResponse(req.ID, -32602, "Unknown tool: "+params.Name)
+	}
+
+	var args struct {
+		Command string `json:"command"`
+		Cwd     string `json:"cwd,omitempty"`
+	}
+	if err := json.Unmarshal(params.Arguments, &args); err != nil {
+		return errorResponse(req.ID, -32602, "Invalid arguments: "+err.Error())
+	}
+
+	if args.Command == "" {
+		return errorResponse(req.ID, -32602, "command is required")
+	}
+
+	result, err := s.execute(args.Command, args.Cwd)
+	if err != nil {
+		return jsonRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Result: &toolCallResult{
+				Content: []contentItem{{Type: "text", Text: err.Error()}},
+				IsError: true,
+			},
+		}
+	}
+
+	return jsonRPCResponse{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+		Result:  result,
+	}
+}
+
+type runResult struct {
+	CompactText   string `json:"compact_text"`
+	ArtifactID    string `json:"artifact_id"`
+	RawTokens     int    `json:"raw_estimated_tokens"`
+	CompactTokens int    `json:"compact_estimated_tokens"`
+}
+
+func (s *Server) execute(command, cwd string) (*toolCallResult, error) {
+	cmd := exec.Command("sh", "-c", command)
+	if cwd != "" {
+		cmd.Dir = cwd
+	}
+
+	// CombinedOutput preserves stderr for successful commands as well as
+	// failing commands. Dropping successful stderr would make the stored
+	// evidence and model-visible summary incomplete.
+	raw, err := cmd.CombinedOutput()
+	exitCode := 0
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+			// ExitCode() returns -1 when the process died by signal. Report
+			// the shell convention (128+signal) so evidence keeps the cause.
+			if ws, ok := exitErr.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+				exitCode = 128 + int(ws.Signal())
+			}
+		} else {
+			return nil, fmt.Errorf("exec error: %w", err)
+		}
+	}
+
+	output := string(raw)
+
+	if s.redactor.ContainsSecrets(output) {
+		output = s.redactor.RedactOutput(output)
+	}
+
+	// Store raw evidence
+	artifact, storeErr := s.artStore.Store([]byte(output), uuid.New().String(), command, exitCode)
+	if storeErr != nil {
+		return nil, fmt.Errorf("store artifact: %w", storeErr)
+	}
+
+	if err := s.db.InsertArtifact(artifact); err != nil {
+		return nil, fmt.Errorf("insert artifact metadata: %w", err)
+	}
+
+	// Classify and reduce
+	category := s.classifier.Classify("mcp_costmax_run", command, output, exitCode, int64(len(output)))
+	reducer := s.reducers.Select(category, command, exitCode, int64(len(output)))
+
+	compactText := output
+	compactTokens := len(output) / 4
+	var reduction *artifacts.ReductionRecord
+
+	if reducer != nil {
+		var redErr error
+		reduction, redErr = reducer.Reduce(output, artifacts.ReducerMetadata{
+			Command:  command,
+			ExitCode: exitCode,
+			Category: string(category),
+			ToolName: artifact.ArtifactID,
+			Size:     int64(len(output)),
+		})
+		if redErr == nil {
+			// Reducers use deterministic IDs for unit-test readability. A live
+			// artifact may be reduced more than once with the same byte length,
+			// so persist a per-artifact ID to avoid silently colliding on the
+			// reduction_records primary key.
+			reduction.ReductionID = "red-" + artifact.ArtifactID
+			reduction.ArtifactID = artifact.ArtifactID
+			if err := s.db.InsertReduction(reduction); err != nil {
+				return nil, fmt.Errorf("insert reduction metadata: %w", err)
+			}
+			compactText = reduction.CompactContent
+			compactTokens = reduction.CompactTokenEst
+		}
+	}
+
+	rawTokens := len(output) / 4
+	recommendation := Recommend(category, rawTokens, compactTokens, reduction != nil)
+	modelText := compactText
+	modelTokens := compactTokens
+	if recommendation == RecommendationPassthrough || recommendation == RecommendationPreserveFull {
+		modelText = output
+		modelTokens = rawTokens
+	}
+	responseText := formatToolOutput(recommendation, command, exitCode, rawTokens, modelTokens, artifact.ArtifactID, modelText)
+	// The policy uses a conservative envelope estimate, but the command text
+	// itself is variable. Re-check the fully rendered response before returning
+	// a reduction recommendation so a long command can never create a false
+	// saving.
+	guarded := GuardRecommendation(recommendation, rawTokens, len(responseText)/4)
+	if guarded != recommendation {
+		recommendation = guarded
+		modelText = output
+		modelTokens = rawTokens
+		responseText = formatToolOutput(recommendation, command, exitCode, rawTokens, modelTokens, artifact.ArtifactID, modelText)
+	}
+
+	// Persist session metrics
+	if err := s.db.InsertSessionMetrics(s.sessionID, rawTokens, modelTokens, 1, 1); err != nil {
+		return nil, fmt.Errorf("insert session metrics: %w", err)
+	}
+
+	return &toolCallResult{
+		Content: []contentItem{{
+			Type: "text",
+			Text: responseText,
+		}},
+		// A nonzero command exit is evidence, not an MCP transport failure.
+		// The model must receive diagnostics for expected failing tests/builds.
+		IsError: false,
+	}, nil
+}
+
+func formatToolOutput(recommendation Recommendation, command string, exitCode, rawTokens, modelTokens int, artifactID, modelText string) string {
+	return fmt.Sprintf("[costmax_run] Recommendation: %s\nOutput mode: %s\nCommand: %s\nExit: %d\nRaw tokens: %d\nModel-visible tokens: %d\nArtifact ID: %s\nArtifact URI: cmx://artifact/%s\n---\n%s",
+		recommendation, outputMode(recommendation), command, exitCode, rawTokens, modelTokens, artifactID, artifactID, modelText)
+}
+
+func outputMode(recommendation Recommendation) string {
+	if recommendation == RecommendationReduce || recommendation == RecommendationArtifactRequired {
+		return "compact summary"
+	}
+	return "unmodified output"
+}
+
+func (s *Server) handleResourceRead(req jsonRPCRequest) jsonRPCResponse {
+	var params struct {
+		URI string `json:"uri"`
+	}
+	if err := json.Unmarshal(req.Params, &params); err != nil || params.URI == "" {
+		return errorResponse(req.ID, -32602, "Invalid params: uri required")
+	}
+
+	// Expected URI format: cmx://artifact/<artifact-id>
+	artifactID := strings.TrimPrefix(params.URI, "cmx://artifact/")
+	if artifactID == params.URI {
+		return errorResponse(req.ID, -32602, "Unknown resource: "+params.URI)
+	}
+
+	meta, err := s.db.GetArtifact(artifactID)
+	if err != nil {
+		return errorResponse(req.ID, -32602, "Artifact not found: "+err.Error())
+	}
+	if meta == nil {
+		return errorResponse(req.ID, -32602, "Artifact not found: "+artifactID)
+	}
+
+	raw, err := s.artStore.RetrieveByDigest(meta.ContentDigest)
+	if err != nil {
+		return errorResponse(req.ID, -32602, "Artifact read error: "+err.Error())
+	}
+
+	return jsonRPCResponse{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+		Result: map[string]any{
+			"contents": []map[string]any{
+				{
+					"uri":      params.URI,
+					"mimeType": "text/plain",
+					"text":     string(raw),
+				},
+			},
+		},
+	}
+}
+
+func errorResponse(id json.RawMessage, code int, msg string) jsonRPCResponse {
+	return jsonRPCResponse{
+		JSONRPC: "2.0",
+		ID:      rawToID(id),
+		Error:   &rpcError{Code: code, Message: msg},
+	}
+}
+
+func writeError(w io.Writer, id json.RawMessage, code int, msg string) {
+	resp := errorResponse(id, code, msg)
+	data, _ := json.Marshal(resp)
+	fmt.Fprintln(w, string(data))
+}
+
+func rawToID(raw json.RawMessage) any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var n json.Number
+	if err := json.Unmarshal(raw, &n); err == nil {
+		if i, err := n.Int64(); err == nil {
+			return i
+		}
+		return n.String()
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	return nil
+}
+
+func mkdirAll(path string, perm os.FileMode) error {
+	return os.MkdirAll(path, perm)
+}
+
+// GetArtifact exposes the artifact store lookup for tests.
+func (s *Server) GetArtifact(id string) (*artifacts.EvidenceArtifact, error) {
+	return s.db.GetArtifact(id)
+}
+
+// GetArtifactStore exposes the artifact store for tests.
+func (s *Server) GetArtifactStore() *artifacts.Store {
+	return s.artStore
+}
+
+// ReductionCount exposes persisted reduction cardinality for integration
+// checks without exposing the database handle.
+func (s *Server) ReductionCount() (int, error) {
+	return s.db.ReductionCount()
+}
+
+// SessionID identifies the long-lived MCP server process for metrics queries.
+func (s *Server) SessionID() string {
+	return s.sessionID
+}
+
+// SessionMetrics exposes the process-scoped accumulation used by report
+// tooling and integration checks.
+func (s *Server) SessionMetrics() (rawTokens, compactTokens, artifactsReduced, toolCalls int, err error) {
+	return s.db.GetSessionMetrics(s.sessionID)
+}

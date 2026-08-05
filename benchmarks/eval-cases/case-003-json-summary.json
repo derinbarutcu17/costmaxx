@@ -1,0 +1,13 @@
+{
+  "id": "case-003-json-summary",
+  "description": "Generate a large JSON array of users and report the count and a summary from the structured JSON reducer output",
+  "files": {
+    "users.json": "[\n  {\"id\": 1, \"name\": \"Alice\", \"role\": \"admin\", \"active\": true, \"email\": \"alice@example.com\"},\n  {\"id\": 2, \"name\": \"Bob\", \"role\": \"editor\", \"active\": true, \"email\": \"bob@example.com\"},\n  {\"id\": 3, \"name\": \"Charlie\", \"role\": \"viewer\", \"active\": false, \"email\": \"charlie@example.com\"},\n  {\"id\": 4, \"name\": \"Diana\", \"role\": \"admin\", \"active\": true, \"email\": \"diana@example.com\"},\n  {\"id\": 5, \"name\": \"Eve\", \"role\": \"editor\", \"active\": false, \"email\": \"eve@example.com\"},\n  {\"id\": 6, \"name\": \"Frank\", \"role\": \"viewer\", \"active\": true, \"email\": \"frank@example.com\"},\n  {\"id\": 7, \"name\": \"Grace\", \"role\": \"admin\", \"active\": true, \"email\": \"grace@example.com\"},\n  {\"id\": 8, \"name\": \"Hank\", \"role\": \"editor\", \"active\": false, \"email\": \"hank@example.com\"},\n  {\"id\": 9, \"name\": \"Ivy\", \"role\": \"viewer\", \"active\": true, \"email\": \"ivy@example.com\"},\n  {\"id\": 10, \"name\": \"Jack\", \"role\": \"admin\", \"active\": true, \"email\": \"jack@example.com\"},\n  {\"id\": 11, \"name\": \"Kate\", \"role\": \"editor\", \"active\": true, \"email\": \"kate@example.com\"},\n  {\"id\": 12, \"name\": \"Leo\", \"role\": \"viewer\", \"active\": false, \"email\": \"leo@example.com\"},\n  {\"id\": 13, \"name\": \"Maria\", \"role\": \"admin\", \"active\": true, \"email\": \"maria@example.com\"},\n  {\"id\": 14, \"name\": \"Nathan\", \"role\": \"editor\", \"active\": true, \"email\": \"nathan@example.com\"},\n  {\"id\": 15, \"name\": \"Olive\", \"role\": \"viewer\", \"active\": false, \"email\": \"olive@example.com\"}\n]\n"
+  },
+  "prompt": "Run 'cat users.json'. Tell me how many users there are total, and list the names of all users with role 'admin'.",
+  "expected_answer": ["15", "Alice", "Diana", "Grace", "Jack", "Maria"],
+  "expected_command": "cat users.json",
+  "expected_exit_code": 0,
+  "reducer_target": "json",
+  "expected_active_behaviour": "costmax_run with 'cat users.json', JSON reducer summarizes array length and keys, model reports count and admin names from compact output"
+}

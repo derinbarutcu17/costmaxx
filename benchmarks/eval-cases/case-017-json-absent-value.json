@@ -1,0 +1,11 @@
+{
+  "id": "case-017-json-absent-value",
+  "description": "A categorical JSON response can prove a queried category is absent.",
+  "files": {"api": "printf '[\\n'; for i in $(seq 1 80); do status=active; [ $((i % 4)) -eq 0 ] && status=pending; printf '{\\\"name\\\":\\\"Job%s\\\",\\\"status\\\":\\\"%s\\\"}' \"$i\" \"$status\"; [ \"$i\" -lt 80 ] && printf ','; printf '\\n'; done; printf ']\\n'\n"},
+  "prompt": "Run 'sh api --fake'. Are any records archived? Answer yes or no only.",
+  "expected_answer": ["\\bno\\b"],
+  "expected_command": "sh api --fake",
+  "expected_exit_code": 0,
+  "reducer_target": "json",
+  "expected_active_behaviour": "JSON reducer exposes every bounded categorical value, including absence of archived"
+}

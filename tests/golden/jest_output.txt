@@ -1,0 +1,13 @@
+PASS src/auth/session.test.ts (12.3s)
+  ✓ creates session (45ms)
+  ✓ validates token (12ms)
+  ✗ handles expired token (8ms)
+  ✓ refreshes token (15ms)
+  ✗ revokes on error (10ms)
+
+PASS src/auth/refresh.test.ts (8.1s)
+  ✓ refresh flow (22ms)
+  ✗ refresh with expired token (14ms)
+
+Tests: 7 passed, 3 failed
+Duration: 20.4s

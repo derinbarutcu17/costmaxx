@@ -1,0 +1,21 @@
+# Build artifacts
+/costmax
+/costmaxx
+/dist/
+*.exe
+
+# Local evaluation evidence (1.6 GB of transcripts; not for the repo)
+/results/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# macOS
+.DS_Store
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp

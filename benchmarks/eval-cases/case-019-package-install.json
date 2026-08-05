@@ -1,0 +1,11 @@
+{
+  "id": "case-019-package-install",
+  "description": "A long package-manager failure keeps the final resolver error visible.",
+  "files": {"npm-install": "echo 'npm WARN deprecated package-a'\nfor i in $(seq 1 90); do echo \"npm http fetch GET 200 dependency-$i\"; done\necho 'npm ERR! code ERESOLVE'\necho 'npm ERR! ERESOLVE unable to resolve dependency tree'\necho 'npm ERR! peer react@18 required by widget@2.0.0'\nexit 1\n"},
+  "prompt": "Run 'sh npm-install --fake'. What is the package-manager error code?",
+  "expected_answer": ["ERESOLVE"],
+  "expected_command": "sh npm-install --fake",
+  "expected_exit_code": 1,
+  "reducer_target": "terminal",
+  "expected_active_behaviour": "terminal summary retains final resolver failure and labels artifact_required"
+}

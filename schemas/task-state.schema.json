@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TaskState",
+  "type": "object",
+  "required": ["task_id", "schema_version", "state_version", "created_at", "updated_at"],
+  "properties": {
+    "schema_version": {"type": "integer"},
+    "task_id": {"type": "string"},
+    "session_ids": {"type": "array", "items": {"type": "string"}},
+    "repository": {"type": "string"},
+    "branch": {"type": "string"},
+    "objective": {"type": "string"},
+    "acceptance_criteria": {"type": "array", "items": {"type": "string"}},
+    "constraints": {"type": "array", "items": {"type": "string"}},
+    "decisions": {"$ref": "#/definitions/StateFact"},
+    "relevant_locations": {"type": "array", "items": {"type": "string"}},
+    "changes": {"type": "array", "items": {"type": "string"}},
+    "commands": {"type": "array", "items": {"type": "string"}},
+    "test_runs": {"type": "array", "items": {"$ref": "#/definitions/TestRun"}},
+    "unresolved_issues": {"type": "array", "items": {"type": "string"}},
+    "completed_work": {"type": "array", "items": {"type": "string"}},
+    "next_action": {"type": "string"},
+    "evidence_refs": {"type": "array", "items": {"type": "string"}},
+    "state_version": {"type": "integer"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"}
+  },
+  "definitions": {
+    "StateFact": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "value": {"type": "string"},
+          "source": {"type": "string", "enum": ["observed", "agent_reported", "user_stated", "inferred"]},
+          "event_ids": {"type": "array", "items": {"type": "string"}},
+          "artifact_ids": {"type": "array", "items": {"type": "string"}},
+          "confidence": {"type": "number"},
+          "created_at": {"type": "string", "format": "date-time"},
+          "supersedes": {"type": "string"}
+        }
+      }
+    },
+    "TestRun": {
+      "type": "object",
+      "properties": {
+        "command": {"type": "string"},
+        "framework": {"type": "string"},
+        "exit_code": {"type": "integer"},
+        "passed": {"type": "integer"},
+        "failed": {"type": "integer"},
+        "skipped": {"type": "integer"},
+        "failing_test_ids": {"type": "array", "items": {"type": "string"}},
+        "error_locations": {"type": "array", "items": {"type": "string"}},
+        "duration": {"type": "number"},
+        "artifact_id": {"type": "string"},
+        "timestamp": {"type": "string", "format": "date-time"}
+      }
+    }
+  }
+}

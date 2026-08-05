@@ -1,0 +1,25 @@
+diff --git a/src/auth/session.ts b/src/auth/session.ts
+index abc123..def456 100644
+--- a/src/auth/session.ts
++++ b/src/auth/session.ts
+@@ -42,6 +42,8 @@ export class SessionManager {
+   private timeout: number;
+
+   constructor(config: Config) {
++    // Default to secure cookies in production
++    this.cookieSecure = config.env === 'production';
+     this.timeout = config.timeout || 30000;
+   }
+diff --git a/src/auth/refresh.ts b/src/auth/refresh.ts
+index 789012..345678 100644
+--- a/src/auth/refresh.ts
++++ b/src/auth/refresh.ts
+@@ -15,7 +15,7 @@ export async function refreshToken(token: string): Promise<Token> {
+   const response = await fetch('/api/refresh', {
+     method: 'POST',
+     headers: {
+-      'Content-Type': 'application/json',
++      'Content-Type': 'application/json; charset=utf-8',
+     },
+     body: JSON.stringify({ token }),
+   });

@@ -1,0 +1,11 @@
+{
+  "id": "case-009-pytest-collection",
+  "description": "Pytest collection errors retain both source locations.",
+  "files": {"pytest": "for i in $(seq 1 60); do echo \"collected test_$i\"; done\necho 'ERROR collecting tests/test_config.py:12'\necho 'ImportError: cannot import name Settings'\necho 'ERROR collecting tests/test_routes.py:8'\necho 'SyntaxError: invalid syntax'\nexit 2\n"},
+  "prompt": "Run 'sh pytest --collect-only'. List the two Python files with collection errors.",
+  "expected_answer": ["test_config\\.py", "test_routes\\.py"],
+  "expected_command": "sh pytest --collect-only",
+  "expected_exit_code": 2,
+  "reducer_target": "test",
+  "expected_active_behaviour": "test reducer retains pytest ERROR locations"
+}

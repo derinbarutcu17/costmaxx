@@ -1,0 +1,13 @@
+{
+  "id": "case-002-failing-tests",
+  "description": "Run a mock test suite that outputs pass/fail summary and identify the failing test names from the compact reducer output",
+  "files": {
+    "test_output.txt": "Running tests...\nPASS src/utils/helper.test.ts\nPASS src/auth/login.test.ts\nPASS src/db/connect.test.ts\nFAIL src/api/rates.test.ts\n  Expected: 200\n  Received: 500\nPASS src/cache/redis.test.ts\nFAIL src/api/validate.test.ts\n  Expected: { ok: true }\n  Received: { ok: false, error: 'invalid' }\nPASS src/config/load.test.ts\n\nTests: 5 passed, 2 failed\nDuration: 4.2s"
+  },
+  "prompt": "Run 'cat test_output.txt' and list only the names of the failing test files (not the full paths, just the filenames).",
+  "expected_answer": ["rates.test", "validate.test"],
+  "expected_command": "cat test_output.txt",
+  "expected_exit_code": 0,
+  "reducer_target": "test",
+  "expected_active_behaviour": "costmax_run with 'cat test_output.txt', model reads compact test summary containing failing test IDs, extracts filenames without rehydrating"
+}

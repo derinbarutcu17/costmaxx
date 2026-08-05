@@ -1,0 +1,11 @@
+{
+  "id": "case-013-eslint-warnings",
+  "description": "Warning-heavy lint output retains the warning count without pretending warnings are errors.",
+  "files": {"eslint-warnings": "for i in $(seq 1 70); do echo \"src/module$i.ts:1:1 notice generated lint output\"; done\necho 'src/auth/session.ts:45:10 warning missing return type explicit-function-return-type'\necho 'src/auth/refresh.ts:12:3 warning unused variable no-unused-vars'\necho 'src/api/client.ts:18:7 warning prefer const prefer-const'\necho '3 problems (0 errors, 3 warnings)'\n"},
+  "prompt": "Run 'sh eslint-warnings --fake'. How many warnings are reported in the final summary?",
+  "expected_answer": ["3"],
+  "expected_command": "sh eslint-warnings --fake",
+  "expected_exit_code": 0,
+  "reducer_target": "lint",
+  "expected_active_behaviour": "lint reducer preserves warning totals"
+}

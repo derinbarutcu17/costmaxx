@@ -1,0 +1,13 @@
+{
+  "id": "case-007-build",
+  "description": "Run a local build-like script that emits a realistic build log with exactly two error locations and identify those locations from the build reducer compact output",
+  "files": {
+    "build": "#!/bin/sh\necho '[INFO] Starting TypeScript compilation...'\necho '[INFO] Found 142 files to compile.'\necho '[STEP] Generating declaration files...'\necho '[STEP] Checking type compatibility across modules...'\necho '[STEP] Bundling with webpack...'\necho ''\necho 'ERROR: src/app.ts:10:8 - Type 42 is not assignable to type string.'\necho ''\necho 'ERROR: src/utils.ts:25:12 - Argument of type number is not assignable to parameter of type string.'\necho ''\necho '[WEBPACK] Compilation finished with exit code 1.'\necho '[WEBPACK] Duration: 8.3s'"
+  },
+  "prompt": "Run 'sh build --fake'. List the exact error locations (file paths with line numbers) shown in the build output.",
+  "expected_answer": ["src/app\\.ts:10", "src/utils\\.ts:25"],
+  "expected_command": "sh build --fake",
+  "expected_exit_code": 0,
+  "reducer_target": "build",
+  "expected_active_behaviour": "costmax_run with 'sh build --fake', build reducer extracts ERROR: lines via ExtractErrors, model reads file:line locations from compact error list without rehydrating. Note: ERROR: prefix is needed because ExtractErrors drops prefixes before the keyword."
+}

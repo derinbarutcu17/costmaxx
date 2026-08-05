@@ -1,0 +1,11 @@
+{
+  "id": "case-011-typescript-build",
+  "description": "TypeScript compiler output retains two error locations.",
+  "files": {"tsc": "for i in $(seq 1 70); do echo \"src/module$i.ts(1,1): warning TS6133: generated warning\"; done\necho 'src/auth/session.ts(45,10): error TS2322: Type string is not assignable to type number.'\necho 'src/api/client.ts(18,7): error TS2345: Argument of type null is not assignable.'\nexit 2\n"},
+  "prompt": "Run 'sh tsc --noEmit'. List the two files and line numbers with errors.",
+  "expected_answer": ["session\\.ts.*45", "client\\.ts.*18"],
+  "expected_command": "sh tsc --noEmit",
+  "expected_exit_code": 2,
+  "reducer_target": "build",
+  "expected_active_behaviour": "build reducer retains TypeScript error lines"
+}

@@ -1,0 +1,72 @@
+PASS src/auth/session.test.ts (12.3s)
+  ✓ creates session with valid credentials (45ms)
+  ✓ creates session with remember-me flag (32ms)
+  ✓ creates session with OAuth token (28ms)
+  ✓ validates active session (12ms)
+  ✓ validates expired session returns null (15ms)
+  ✓ validates malformed token throws (8ms)
+  ✗ handles expired token gracefully (8ms)
+  ✓ refreshes token before expiry (15ms)
+  ✓ refreshes token with retry on network error (22ms)
+  ✓ refreshes token with backoff (18ms)
+  ✗ revokes session on auth error (10ms)
+  ✓ revokes session on user logout (14ms)
+  ✓ revokes session on timeout (9ms)
+  ✓ cleans up expired sessions (25ms)
+  ✓ cleans up orphaned sessions (20ms)
+
+PASS src/auth/refresh.test.ts (8.1s)
+  ✓ refresh flow with valid token (22ms)
+  ✓ refresh flow with rotating tokens (18ms)
+  ✓ refresh flow with concurrent requests (35ms)
+  ✗ refresh with expired token returns error (14ms)
+  ✓ refresh with invalid signature rejects (12ms)
+  ✓ refresh with tampered payload rejects (16ms)
+
+PASS src/middleware/auth.test.ts (15.2s)
+  ✓ middleware passes authenticated requests (55ms)
+  ✗ middleware blocks unauthenticated requests but returns 500 instead of 401 (42ms)
+  ✓ middleware attaches user to context (38ms)
+  ✓ middleware handles missing auth header (25ms)
+  ✓ middleware handles malformed auth header (30ms)
+  ✓ middleware handles expired token gracefully (28ms)
+  ✓ middleware bypass for public routes (20ms)
+  ✓ middleware rate limiting on auth failures (35ms)
+  ✓ middleware logging on auth failures (15ms)
+
+PASS src/utils/token.test.ts (5.3s)
+  ✓ token generation produces valid JWT (10ms)
+  ✓ token generation with custom claims (8ms)
+  ✓ token validation accepts valid tokens (6ms)
+  ✓ token validation rejects expired (5ms)
+  ✓ token validation rejects malformed (4ms)
+  ✓ token validation rejects tampered (7ms)
+  ✓ token refresh produces new valid token (12ms)
+  ✓ token refresh invalidates old token (9ms)
+  ✓ token blacklist prevents reuse (11ms)
+
+PASS src/config/auth.test.ts (3.1s)
+  ✓ config loads default values (5ms)
+  ✓ config overrides with env vars (4ms)
+  ✓ config validates required fields (6ms)
+  ✓ config throws on missing secret (3ms)
+
+Tests: 35 passed, 4 failed
+  Failed tests:
+    ● src/auth/session.test.ts › handles expired token gracefully
+      Expected: 401
+      Received: 500
+
+    ● src/auth/session.test.ts › revokes session on auth error
+      Expected: session.revoked === true
+      Received: session.revoked === false
+
+    ● src/auth/refresh.test.ts › refresh with expired token returns error
+      Expected: error.code === 'TOKEN_EXPIRED'
+      Received: error.code === 'INTERNAL_ERROR'
+
+    ● src/middleware/auth.test.ts › middleware blocks unauthenticated requests but returns 500 instead of 401
+      Expected: 401
+      Received: 500
+
+Duration: 44.0s

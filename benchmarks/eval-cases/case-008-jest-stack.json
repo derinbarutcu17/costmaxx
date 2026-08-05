@@ -1,0 +1,11 @@
+{
+  "id": "case-008-jest-stack",
+  "description": "Jest-style failures with stack noise retain the two failing test files.",
+  "files": {"jest": "for i in $(seq 1 80); do echo \"PASS src/unit/module$i.test.ts\"; done\necho '● src/auth/session.test.ts'\necho '  Expected: 401'\necho '● src/auth/refresh.test.ts'\necho '  Expected: refreshed token'\necho 'Tests: 80 passed, 2 failed'\nexit 1\n"},
+  "prompt": "Run 'sh jest --fake' and list only the two failing test file paths.",
+  "expected_answer": ["session\\.test\\.ts", "refresh\\.test\\.ts"],
+  "expected_command": "sh jest --fake",
+  "expected_exit_code": 1,
+  "reducer_target": "test",
+  "expected_active_behaviour": "test reducer retains Jest failure headings without raw PASS noise"
+}

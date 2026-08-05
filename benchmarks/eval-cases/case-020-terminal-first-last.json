@@ -1,0 +1,11 @@
+{
+  "id": "case-020-terminal-first-last",
+  "description": "Long terminal output with facts at both ends remains answerable from the bounded summary.",
+  "files": {"deploy-log": "echo 'DEPLOYMENT=blue-canary'\nfor i in $(seq 1 100); do echo \"progress step $i completed\"; done\necho 'RESULT=rolled-back-after-healthcheck'\n"},
+  "prompt": "Run 'sh deploy-log --fake'. Give the deployment name and final result.",
+  "expected_answer": ["blue-canary", "rolled-back-after-healthcheck"],
+  "expected_command": "sh deploy-log --fake",
+  "expected_exit_code": 0,
+  "reducer_target": "terminal",
+  "expected_active_behaviour": "terminal reducer preserves first and final facts and labels artifact_required"
+}

@@ -1,0 +1,11 @@
+{
+  "id": "case-014-ripgrep-many-files",
+  "description": "Ripgrep across twelve source files retains the matching-file count.",
+  "files": {"src/a.ts": "FIXME one\nFIXME two\n", "src/b.ts": "FIXME one\nFIXME two\n", "src/c.ts": "FIXME one\nFIXME two\n", "src/d.ts": "FIXME one\nFIXME two\n", "src/e.ts": "FIXME one\nFIXME two\n", "src/f.ts": "FIXME one\nFIXME two\n", "src/g.ts": "FIXME one\nFIXME two\n", "src/h.ts": "FIXME one\nFIXME two\n", "src/i.ts": "FIXME one\nFIXME two\n", "src/j.ts": "FIXME one\nFIXME two\n", "src/k.ts": "FIXME one\nFIXME two\n", "src/l.ts": "FIXME one\nFIXME two\n"},
+  "prompt": "Run 'rg \"FIXME\" src' and state how many files contain matches.",
+  "expected_answer": ["12"],
+  "expected_command": "rg \"FIXME\" src",
+  "expected_exit_code": 0,
+  "reducer_target": "search",
+  "expected_active_behaviour": "search reducer retains match and distinct-file counts"
+}

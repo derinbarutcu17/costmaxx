@@ -1,0 +1,13 @@
+{
+  "id": "case-004-lint",
+  "description": "Run a local eslint-like script that emits 100+ lint lines in conventional path:line:col error format and identify the two named error files from compact reducer output",
+  "files": {
+    "eslint": "#!/bin/sh\necho \"src/app.ts:10:8  error  \\`config\\` is defined but never used  (no-unused-vars)\"\necho \"src/utils.ts:25:12  error  \\`helper\\` is defined but never used  (no-unused-vars)\"\ni=1\nwhile [ $i -le 100 ]; do\n  echo \"src/module$i.ts:$i:${i}0  error  \\`var$i\\` is never used  (no-unused-vars)\"\n  i=$((i+1))\ndone\necho \"102 problems (0 errors, 0 warnings)\""
+  },
+  "prompt": "Run 'sh eslint --fake'. From the compact lint output, list only the file paths of the two files that have errors (not module files).",
+  "expected_answer": ["src/app\\.ts", "src/utils\\.ts"],
+  "expected_command": "sh eslint --fake",
+  "expected_exit_code": 0,
+  "reducer_target": "lint",
+  "expected_active_behaviour": "costmax_run with 'sh eslint --fake', lint reducer extracts issues lines matching path:line:col error, model reads the two non-module error paths from compact output without rehydrating"
+}

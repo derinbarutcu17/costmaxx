@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "EvidenceArtifact",
+  "type": "object",
+  "required": ["artifact_id", "content_digest", "storage_path", "created_at"],
+  "properties": {
+    "artifact_id": {"type": "string"},
+    "content_digest": {"type": "string"},
+    "media_type": {"type": "string"},
+    "encoding": {"type": "string"},
+    "original_bytes": {"type": "integer"},
+    "compressed_bytes": {"type": "integer"},
+    "estimated_tokens": {"type": "integer"},
+    "storage_path": {"type": "string"},
+    "source_event_id": {"type": "string"},
+    "command": {"type": "string"},
+    "exit_code": {"type": "integer"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "retention_class": {"type": "string", "enum": ["session", "task", "long"]},
+    "redaction_status": {"type": "string"}
+  }
+}

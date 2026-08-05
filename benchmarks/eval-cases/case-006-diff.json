@@ -1,0 +1,14 @@
+{
+  "id": "case-006-diff",
+  "description": "Use git diff --no-index against two fixture files and report changed file names and insertion/deletion counts from the diff reducer summary",
+  "files": {
+    "before.txt": "app.listen(3000, () => {\n  console.log('Server running');\n});\n\nfunction handleRequest(req, res) {\n  res.send('Hello');\n}\n\nconst TIMEOUT = 5000;\n",
+    "after.txt": "const PORT = process.env.PORT || 3000;\n\napp.listen(PORT, () => {\n  console.log('Server running on port', PORT);\n});\n\nfunction handleRequest(req, res, next) {\n  res.json({ message: 'Hello' });\n  next();\n}\n\nconst TIMEOUT = 10000;\n"
+  },
+  "prompt": "Run 'git diff --no-index before.txt after.txt'. List the changed file names and the number of insertions and deletions shown in the diff summary. Note: git diff exits 1 for differences — this is expected.",
+  "expected_answer": ["before\\.txt", "after\\.txt", "(?:[Ii]nsertions?:\\s*\\*{0,2}[5-9]\\*{0,2}|[5-9]\\s+insertions?)", "(?:[Dd]eletions?:\\s*\\*{0,2}[3-6]\\*{0,2}|[3-6]\\s+deletions?)"],
+  "expected_command": "git diff --no-index before.txt after.txt",
+  "expected_exit_code": 1,
+  "reducer_target": "diff",
+  "expected_active_behaviour": "costmax_run with 'git diff --no-index before.txt after.txt', diff reducer captures file count and +/- stats, exit 1 noted as expected, model reads file names and stats from compact output"
+}

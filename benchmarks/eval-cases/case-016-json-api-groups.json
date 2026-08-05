@@ -1,0 +1,11 @@
+{
+  "id": "case-016-json-api-groups",
+  "description": "A JSON API payload retains categorical group names and counts without exposing IDs.",
+  "files": {"api": "printf '[\\n'; for i in $(seq 1 90); do role=user; [ $((i % 15)) -eq 0 ] && role=admin; [ $((i % 10)) -eq 0 ] && role=editor; printf '{\\\"id\\\":%s,\\\"name\\\":\\\"User%s\\\",\\\"role\\\":\\\"%s\\\"}' \"$i\" \"$i\" \"$role\"; [ \"$i\" -lt 90 ] && printf ','; printf '\\n'; done; printf ']\\n'\n"},
+  "prompt": "Run 'sh api --fake'. How many admins and editors are in the response?",
+  "expected_answer": ["3", "9"],
+  "expected_command": "sh api --fake",
+  "expected_exit_code": 0,
+  "reducer_target": "json",
+  "expected_active_behaviour": "JSON reducer groups role values and labels"
+}

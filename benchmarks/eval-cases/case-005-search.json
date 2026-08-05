@@ -1,0 +1,22 @@
+{
+  "id": "case-005-search",
+  "description": "Create 10 source files with many TODO matches, run ripgrep, and report the number of matching files from the search summary without artifact read",
+  "files": {
+    "src/component1.tsx": "// TODO: memoize this component\nexport function Comp1() { return null; }\n// TODO: add prop types",
+    "src/component2.tsx": "// TODO: extract styles\n// TODO: add accessibility attributes\nexport function Comp2() { return null; }",
+    "src/component3.tsx": "// TODO: add error boundary\nexport function Comp3() { return null; }\n// TODO: write tests",
+    "src/hooks.ts": "// TODO: add cleanup function\nexport function useData() {}\n// TODO: handle loading state\n// TODO: add abort controller",
+    "src/utils.ts": "// TODO: add validation\nexport function formatDate() {}\n// TODO: handle edge case\n// TODO: add unit tests",
+    "src/config.ts": "// TODO: load from env\nexport const config = {};\n// TODO: validate config on startup",
+    "src/styles.ts": "// TODO: use CSS variables\nexport const styles = {};\n// TODO: add dark mode support\n// TODO: improve responsive breakpoints",
+    "src/constants.ts": "// TODO: move to config file\nexport const API_URL = '';\n// TODO: add timeout constant",
+    "src/types.ts": "// TODO: add JSDoc comments\nexport interface User {}\n// TODO: add more specific types\n// TODO: extract shared types",
+    "src/index.ts": "// TODO: add barrel exports\nexport * from './component1';\n// TODO: sort exports alphabetically\n// TODO: add module documentation"
+  },
+  "prompt": "Run 'rg \"TODO\" src' and tell me how many files contain matches.",
+  "expected_answer": ["10"],
+  "expected_command": "rg \"TODO\" src",
+  "expected_exit_code": 0,
+  "reducer_target": "search",
+  "expected_active_behaviour": "costmax_run with 'rg \"TODO\" src', search reducer outputs match/file counts from summary line, model reads Files: 10 from compact output without rehydrating"
+}

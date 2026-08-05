@@ -1,0 +1,13 @@
+{
+  "id": "case-015-git-rename-multi",
+  "description": "A real multi-file Git diff with a rename retains all changed paths.",
+  "initial_files": {"README.md": "# Old title\n", "src/old_config.ts": "export const config = { retries: 3, timeout: 10 };\n", "src/api.ts": "export const url = '/v1';\n"},
+  "files": {"README.md": "# New title\n\nUpdated docs.\n", "src/new_config.ts": "export const config = { retries: 3, timeout: 10 };\n", "src/api.ts": "export const url = '/v2';\nexport const timeout = 30;\n"},
+  "deleted_files": ["src/old_config.ts"],
+  "prompt": "Run 'git diff --find-renames'. List the changed paths, including the renamed config path.",
+  "expected_answer": ["README\\.md", "old_config\\.ts", "new_config\\.ts", "api\\.ts"],
+  "expected_command": "git diff --find-renames",
+  "expected_exit_code": 0,
+  "reducer_target": "diff",
+  "expected_active_behaviour": "diff reducer preserves changed and renamed paths"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "auth-test-fix",
+  "description": "Fix failing authentication tests without changing production cookie policy",
+  "acceptance_criteria": [
+    "All auth tests pass",
+    "Production cookies remain secure",
+    "No changes to production middleware"
+  ],
+  "constraints": [
+    "Do not modify production cookie policy",
+    "Use test environment configuration"
+  ],
+  "expected_files": [
+    "src/test/config.ts",
+    "src/test/setup.ts"
+  ]
+}

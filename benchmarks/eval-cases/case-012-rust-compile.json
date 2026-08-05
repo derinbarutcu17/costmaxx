@@ -1,0 +1,11 @@
+{
+  "id": "case-012-rust-compile",
+  "description": "Rust compiler output retains the two failing modules.",
+  "files": {"cargo-build": "for i in $(seq 1 65); do echo \"Compiling dependency_$i v0.1.0\"; done\necho 'error[E0308]: mismatched types'\necho ' --> src/auth/session.rs:45:10'\necho 'error[E0063]: missing field expires'\necho ' --> src/auth/refresh.rs:12:3'\nexit 101\n"},
+  "prompt": "Run 'sh cargo-build --fake'. List the two Rust source locations with errors.",
+  "expected_answer": ["session\\.rs.*45", "refresh\\.rs.*12"],
+  "expected_command": "sh cargo-build --fake",
+  "expected_exit_code": 101,
+  "reducer_target": "build",
+  "expected_active_behaviour": "build reducer retains Rust compiler errors"
+}

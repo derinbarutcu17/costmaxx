@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RunManifest",
+  "type": "object",
+  "required": ["created_at"],
+  "properties": {
+    "repo_commit": {"type": "string"},
+    "task_spec": {"type": "string"},
+    "hidden_test_version": {"type": "string"},
+    "scorer_version": {"type": "string"},
+    "model": {"type": "string"},
+    "harness_version": {"type": "string"},
+    "config_digest": {"type": "string"},
+    "environment": {"type": "string"},
+    "random_seed": {"type": "integer"},
+    "start_state": {"type": "string"},
+    "end_state": {"type": "string"},
+    "usage_source": {"type": "string"},
+    "verification": {"type": "string"},
+    "artifact_digests": {"type": "array", "items": {"type": "string"}},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}

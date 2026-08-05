@@ -1,0 +1,11 @@
+{
+  "id": "case-010-go-test",
+  "description": "A real verbose Go test run retains the failing test name.",
+  "files": {"go.mod": "module fixture.test/auth\n\ngo 1.22\n", "auth_test.go": "package auth\n\nimport (\"fmt\"; \"testing\")\nfunc TestPassing(t *testing.T) { for i := 0; i < 70; i++ { t.Run(fmt.Sprintf(\"case-%d\", i), func(t *testing.T) {}) } }\nfunc TestAuthExpiry(t *testing.T) { t.Fatal(\"expected 401, got 500\") }\n"},
+  "prompt": "Run 'go test -v ./...' and state only the failing test name.",
+  "expected_answer": ["TestAuthExpiry"],
+  "expected_command": "go test -v ./...",
+  "expected_exit_code": 1,
+  "reducer_target": "test",
+  "expected_active_behaviour": "test reducer retains the Go FAIL test heading"
+}

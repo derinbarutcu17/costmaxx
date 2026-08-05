@@ -1,0 +1,11 @@
+{
+  "id": "case-018-docker-build",
+  "description": "A Docker-style build log retains the failing Dockerfile location.",
+  "files": {"docker-build": "for i in $(seq 1 75); do echo \"#${i} [stage $i/75] RUN cached dependency\"; done\necho 'ERROR: Dockerfile:17: failed to solve: COPY package-lock.json not found'\nexit 1\n"},
+  "prompt": "Run 'sh docker-build --fake'. State the failing file and line number only.",
+  "expected_answer": ["Dockerfile.*17"],
+  "expected_command": "sh docker-build --fake",
+  "expected_exit_code": 1,
+  "reducer_target": "build",
+  "expected_active_behaviour": "build reducer retains ERROR location"
+}
