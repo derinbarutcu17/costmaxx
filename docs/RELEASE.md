@@ -244,3 +244,20 @@ shasum -a 256 costmaxx   # compare against checksums.txt on the release page
 ```
 
 Future releases are exactly: `git tag -a v0.2.0 -m "v0.2.0" && git push origin v0.2.0`.
+
+---
+
+## Future: MCP registry publishing
+
+When ready to be listed on registry.modelcontextprotocol.io (modelcontextprotocol/servers
+and oh-my-posh both publish there):
+
+1. Claim a domain for the server (DNS verification in the registry UI).
+2. Add the registry PEM key as a `MCP_REGISTRY_PEM` repo secret.
+3. Add a publish workflow modeled on oh-my-posh's `.github/workflows/publish-mcp.yml`:
+   build `server.json` from `packages/codex-plugin/mcp/costmax-mcp.json`, run the
+   official `mcp-publisher` CLI (OIDC login + publish) on push to the manifest path.
+
+Do not add the workflow before the domain and secret exist — it would fail on
+every trigger. Listed servers get real traffic, so worth doing once CostMax
+has users.
