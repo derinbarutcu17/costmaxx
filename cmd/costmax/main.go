@@ -49,8 +49,8 @@ func main() {
 }
 
 var rootCmd = &cobra.Command{
-	Use:     "costmax",
-	Short:   "CostMax - local-first efficiency layer for coding agents",
+	Use:   "costmax",
+	Short: "CostMax - local-first efficiency layer for coding agents",
 	Long: `CostMax gives coding agents the smallest sufficient working context
 and measures whether that saves resources without hurting verified outcomes.`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
