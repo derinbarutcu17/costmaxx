@@ -22,7 +22,9 @@ jobs:
       - name: Test
         run: go test -buildvcs=false -count=1 ./...
       - name: Evaluator self-test
-        run: python3 scripts/run-codex-eval.py --self-test && python3 scripts/run-codex-eval.py --fixture-smoke
+        run: |
+          sudo apt-get update && sudo apt-get install -y ripgrep
+          python3 scripts/run-codex-eval.py --self-test && python3 scripts/run-codex-eval.py --fixture-smoke
       - name: Validate release config
         uses: goreleaser/goreleaser-action@v7
         with:
