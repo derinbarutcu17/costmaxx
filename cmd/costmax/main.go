@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"time"
@@ -25,7 +26,17 @@ var db *store.DB
 var adapter *codex.Adapter
 
 // version is overwritten at build time via -ldflags "-X main.version=...".
+// When installed with plain `go install` (no ldflags), fall back to the
+// module version recorded in the build info.
 var version = "dev"
+
+func init() {
+	if version == "dev" {
+		if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+			version = bi.Main.Version
+		}
+	}
+}
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {
