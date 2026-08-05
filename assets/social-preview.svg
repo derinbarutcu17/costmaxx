@@ -1,44 +1,29 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">
-  <defs>
-    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
-      <path d="M 48 0 L 0 0 0 48" fill="none" stroke="#1e293b" stroke-width="0.6"/>
-    </pattern>
-    <linearGradient id="glow" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#22d3ee" stop-opacity="0.18"/>
-      <stop offset="0.5" stop-color="#34d399" stop-opacity="0.08"/>
-      <stop offset="1" stop-color="#020617" stop-opacity="0"/>
-    </linearGradient>
-  </defs>
-  <rect width="1280" height="640" fill="#020617"/>
-  <rect width="1280" height="640" fill="url(#grid)"/>
-  <rect width="1280" height="640" fill="url(#glow)"/>
+  <rect width="1280" height="640" fill="#0a0a0b"/>
 
-  <text x="64" y="120" font-size="26" font-weight="700" fill="#e2e8f0">CostMax</text>
-  <text x="64" y="152" font-size="16" fill="#22d3ee">local-first efficiency layer for coding agents</text>
+  <text x="64" y="110" font-size="26" font-weight="700" fill="#f4f4f5">CostMax</text>
+  <text x="64" y="142" font-size="16" fill="#22d3ee">local-first efficiency layer for coding agents</text>
 
-  <text x="64" y="300" font-size="150" font-weight="700" fill="#e2e8f0">60.6%</text>
-  <text x="64" y="362" font-size="38" font-weight="600" fill="#22d3ee">less model-visible output</text>
-  <text x="64" y="410" font-size="20" fill="#94a3b8">36,645 → 14,436 estimated tokens · 20 fixtures × 3 reps</text>
-  <text x="64" y="442" font-size="20" fill="#94a3b8">full evidence preserved · audited from raw transcripts</text>
+  <text x="64" y="330" font-size="150" font-weight="700" fill="#f4f4f5">60.6%</text>
+  <text x="64" y="392" font-size="36" font-weight="600" fill="#22d3ee">less model-visible output</text>
+  <text x="64" y="436" font-size="19" fill="#71717a">36,645 to 14,436 estimated tokens · 20 fixtures x 3 reps</text>
+  <text x="64" y="464" font-size="19" fill="#71717a">full evidence preserved · audited from raw transcripts</text>
 
   <g>
-    <rect x="840" y="180" width="380" height="86" rx="12" fill="#0f172a" stroke="#34d399" stroke-width="1.5"/>
-    <circle cx="872" cy="223" r="9" fill="#34d399"/>
-    <text x="900" y="216" font-size="18" fill="#e2e8f0" font-weight="600">60/60 answers correct</text>
-    <text x="900" y="246" font-size="15" fill="#94a3b8">active arm · no MCP bypass</text>
+    <circle cx="870" cy="196" r="5" fill="#22d3ee"/>
+    <text x="890" y="200" font-size="21" font-weight="600" fill="#f4f4f5">60/60 answers correct</text>
+    <text x="890" y="226" font-size="15" fill="#71717a">active arm · no MCP bypass</text>
   </g>
   <g>
-    <rect x="840" y="286" width="380" height="86" rx="12" fill="#0f172a" stroke="#a78bfa" stroke-width="1.5"/>
-    <circle cx="872" cy="329" r="9" fill="#a78bfa"/>
-    <text x="900" y="322" font-size="18" fill="#e2e8f0" font-weight="600">0 bypasses · 0 rehydrations</text>
-    <text x="900" y="352" font-size="15" fill="#94a3b8">verified from raw Codex transcripts</text>
+    <circle cx="870" cy="292" r="5" fill="#71717a"/>
+    <text x="890" y="296" font-size="21" font-weight="600" fill="#f4f4f5">0 bypasses · 0 rehydrations</text>
+    <text x="890" y="322" font-size="15" fill="#71717a">verified from raw Codex transcripts</text>
   </g>
   <g>
-    <rect x="840" y="392" width="380" height="86" rx="12" fill="#0f172a" stroke="#fbbf24" stroke-width="1.5"/>
-    <circle cx="872" cy="435" r="9" fill="#fbbf24"/>
-    <text x="900" y="428" font-size="18" fill="#e2e8f0" font-weight="600">opt-in MCP · observe-only</text>
-    <text x="900" y="458" font-size="15" fill="#94a3b8">Codex CLI · MIT</text>
+    <circle cx="870" cy="388" r="5" fill="#71717a"/>
+    <text x="890" y="392" font-size="21" font-weight="600" fill="#f4f4f5">opt-in MCP · observe-only</text>
+    <text x="890" y="418" font-size="15" fill="#71717a">Codex CLI · MIT</text>
   </g>
 
-  <text x="64" y="560" font-size="18" fill="#64748b">github.com/derinbarutcu17/costmaxx</text>
+  <text x="64" y="570" font-size="18" fill="#3f3f46">github.com/derinbarutcu17/costmaxx</text>
 </svg>

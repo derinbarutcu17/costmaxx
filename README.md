@@ -104,7 +104,7 @@ fixtures, 3 repetitions, audited from the raw Codex transcripts.
 </p>
 
 <p align="center">
-  <img src="assets/outcomes-donut.svg" alt="Run outcomes: 44 saving, 15 no-saving, 1 control miss" width="60%">
+  <img src="assets/outcomes-bar.svg" alt="Run outcomes: 44 saving, 15 no-saving, 1 control miss" width="50%">
 </p>
 
 The one control miss was the baseline arm (no CostMax): the model counted
