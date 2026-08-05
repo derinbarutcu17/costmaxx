@@ -24,6 +24,9 @@ var artStore *artifacts.Store
 var db *store.DB
 var adapter *codex.Adapter
 
+// version is overwritten at build time via -ldflags "-X main.version=...".
+var version = "dev"
+
 func main() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -36,6 +39,7 @@ var rootCmd = &cobra.Command{
 	Short: "CostMax - local-first efficiency layer for coding agents",
 	Long: `CostMax gives coding agents the smallest sufficient working context
 and measures whether that saves resources without hurting verified outcomes.`,
+	Version: version,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if cmd.Name() == "help" || cmd.Name() == "completion" {
 			return nil

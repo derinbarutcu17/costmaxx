@@ -1,0 +1,47 @@
+# GoReleaser v2 config. Platforms/artifact names mirror scripts/build-release.sh.
+version: 2
+
+project_name: costmaxx
+
+builds:
+  - id: costmaxx
+    main: ./cmd/costmax
+    binary: costmaxx
+    env:
+      - CGO_ENABLED=0            # static binaries (deps are pure Go incl. modernc sqlite)
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64            # same 5 platforms as scripts/build-release.sh
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .Commit }}
+      - -X main.date={{ .Date }}
+
+# Upload raw binaries directly (no tar.gz/zip) so the README links
+# (releases/latest/download/costmaxx-darwin-arm64) keep working.
+archives:
+  - id: default
+    formats: [binary]
+    name_template: "{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}"   # windows gets .exe appended
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+      - "^Merge"

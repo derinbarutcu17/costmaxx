@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Feature Requests
+    url: https://github.com/derinbarutcu17/costmaxx/discussions/categories/ideas
+    about: Share and vote on feature ideas
+  - name: Q&A
+    url: https://github.com/derinbarutcu17/costmaxx/discussions/categories/q-a
+    about: Ask questions about CostMax

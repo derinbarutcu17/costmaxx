@@ -24,7 +24,7 @@ for PLATFORM in "${PLATFORMS[@]}"; do
 
   GOOS="${GOOS}" GOARCH="${GOARCH}" go build \
     -buildvcs=false \
-    -ldflags="-s -w" \
+    -ldflags="-s -w -X main.version=${VERSION}" \
     -o "${OUTPUT_DIR}/${BINARY_NAME}" \
     ./cmd/costmax/
 

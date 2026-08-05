@@ -1,0 +1,37 @@
+title: Show your savings
+body:
+  - type: markdown
+    attributes:
+      value: |
+        CostMax's claims are audited; yours can be too. Paste the before/after
+        from a real session below.
+  - type: input
+    id: model
+    attributes:
+      label: Model
+      description: e.g. GPT-5.2, Claude Opus, codex-mini
+      placeholder: codex-mini
+    validations:
+      required: true
+  - type: input
+    id: session
+    attributes:
+      label: Session type
+      description: e.g. failing test loop, build fix, large diff review
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: costmaxx report output
+      description: Paste `costmaxx report <session-id>` output
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: saving
+    attributes:
+      label: Estimated saving
+      description: Raw vs model-visible tokens, percentage
+    validations:
+      required: true

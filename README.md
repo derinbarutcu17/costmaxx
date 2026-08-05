@@ -4,20 +4,60 @@
 output your agent has to read, keeps the full evidence, and proves the
 saving instead of claiming it.**
 
+[![ci](https://github.com/derinbarutcu17/costmaxx/actions/workflows/ci.yml/badge.svg)](https://github.com/derinbarutcu17/costmaxx/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/derinbarutcu17/costmaxx?sort=semver)](https://github.com/derinbarutcu17/costmaxx/releases)
+[![Downloads](https://img.shields.io/github/downloads/derinbarutcu17/costmaxx/total)](https://github.com/derinbarutcu17/costmaxx/releases)
+[![Go](https://img.shields.io/badge/go-1.22-blue)](https://go.dev/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 <p align="center">
   <img src="assets/hero-banner.svg" alt="CostMax: 60.6% less model-visible output" width="100%">
 </p>
-
-[![ci](https://github.com/derinbarutcu17/costmaxx/actions/workflows/ci.yml/badge.svg)](https://github.com/derinbarutcu17/costmaxx/actions/workflows/ci.yml)
-[![Go](https://img.shields.io/badge/go-1.22-blue)](https://go.dev/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 Coding agents burn tokens on output they barely use: 1,000-line test runs
 for three failing tests, full diffs for a rename, complete build logs for
 one error. CostMax intercepts those commands, returns the model a compact
 summary, and keeps the raw output retrievable by digest.
 
-It is built for Codex CLI as an opt-in MCP server. Hooks are observe-only.
+Local-first: nothing leaves your machine. Codex CLI only, as an opt-in MCP
+server. Hooks are observe-only.
+
+## Install
+
+```bash
+# From source
+go install github.com/derinbarutcu17/costmaxx/cmd/costmax@latest
+
+# Or a release binary (all platforms in Releases)
+# macOS arm64:
+curl -L -o costmaxx https://github.com/derinbarutcu17/costmaxx/releases/latest/download/costmaxx-darwin-arm64
+chmod +x costmaxx
+```
+
+## Quickstart
+
+Add CostMax's MCP entry to your Codex config (a backup is made first):
+
+```bash
+costmaxx install
+costmaxx doctor
+```
+
+That writes this block to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.costmaxx]
+command = "/path/to/costmaxx"
+args = ["mcp"]
+```
+
+`costmax_run` is now available to Codex:
+
+> **[`costmax_run`](docs/architecture.md)** — executes a local command and
+> returns a compact, digest-addressable summary. Full output stored locally,
+> retrievable via `cmx://artifact/<id>`.
+
+It executes commands with your process permissions; it is not a sandbox.
 
 ---
 
@@ -52,6 +92,13 @@ CostMax's savings claims come from a live evaluation, not a benchmark
 script that ran once on a laptop. One fresh binary, 20 deterministic
 fixtures, 3 repetitions, audited from the raw Codex transcripts.
 
+| Benchmark | What it measures | Result |
+|---|---|---|
+| 20 deterministic fixtures × 3 reps | Model-visible tool output (len/4 estimate) | **60.6% less** (36,645 → 14,436) |
+| Fixture answer signals (test/build/diff/…) | Quality retention through reduction | **60/60 correct** |
+| MCP discipline | Bypasses, direct commands, rehydration | **0 / 0 / 0** |
+| Baseline control arm | Model without CostMax | 59/60 (1 count miss, reported honestly) |
+
 <p align="center">
   <img src="assets/savings-chart.svg" alt="Model-visible tokens per fixture: baseline vs CostMax" width="100%">
 </p>
@@ -60,25 +107,13 @@ fixtures, 3 repetitions, audited from the raw Codex transcripts.
   <img src="assets/outcomes-donut.svg" alt="Run outcomes: 44 saving, 15 no-saving, 1 control miss" width="60%">
 </p>
 
-What the run recorded:
-
-| Check | Result |
-|---|---:|
-| Paired records | 60 (20 fixtures × 3 repetitions) |
-| Active quality passes | 60/60 |
-| Active `costmax_run` calls | 60/60, exactly once per case |
-| Direct command calls (bypasses) | 0 |
-| Active rehydrations | 0 |
-| Model-visible token estimate | 36,645 → 14,436 (**60.6% lower**) |
-| Baseline control passes | 59/60 |
-
 The one control miss was the baseline arm (no CostMax): the model counted
 9 matching files where the fixture had 10. The CostMax route answered that
 same case correctly in all three repetitions. Control-arm noise, reported
 honestly rather than hidden.
 
 These are `len(text)/4` estimates of tool-result text, not billed-token
-measurements.
+measurements. Methodology: [docs/benchmark-methodology.md](docs/benchmark-methodology.md).
 
 ## Why you can trust the numbers
 
@@ -112,28 +147,6 @@ Independent audit write-up: [docs/VERIFICATION.md](docs/VERIFICATION.md)
 
 ---
 
-## Install
-
-```bash
-# From source
-go install github.com/derinbarutcu17/costmaxx/cmd/costmax@latest
-
-# Or use a release binary (see Releases for all platforms)
-# macOS arm64:
-curl -L -o costmaxx https://github.com/derinbarutcu17/costmaxx/releases/latest/download/costmaxx-darwin-arm64
-chmod +x costmaxx
-```
-
-Add CostMax's MCP entry to your Codex config (a backup is made first):
-
-```bash
-costmaxx install
-costmaxx doctor
-```
-
-The `costmax_run` tool is now available to Codex. It executes commands with
-your process permissions; it is not a sandbox.
-
 ## Usage
 
 ```bash
@@ -164,19 +177,11 @@ costmaxx gc                   # garbage-collect old artifacts
 - [Privacy model](docs/privacy-model.md) · [Capability matrix](docs/capability-matrix.md)
 - [Proof plan](docs/PROOF_PLAN.md) · [Evaluation protocol](docs/EVALUATION_PROTOCOL.md)
 
-## Development
+## Contributing
 
-```bash
-go test -buildvcs=false -count=1 ./...
-python3 scripts/run-codex-eval.py --self-test
-python3 scripts/run-codex-eval.py --fixture-smoke
-```
-
-Proof charts in this README are generated from the live run report:
-
-```bash
-python3 scripts/gen-proof-charts.py
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md) and the
+[issue templates](.github/ISSUE_TEMPLATE/). Questions go to
+[Discussions](https://github.com/derinbarutcu17/costmaxx/discussions).
 
 ## License
 
