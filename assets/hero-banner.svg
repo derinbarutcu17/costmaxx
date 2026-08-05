@@ -6,18 +6,18 @@
   <text x="40" y="180" font-size="12.5" fill="#71717a">36,645 to 14,436 estimated tokens · 20 fixtures x 3 reps</text>
 
   <g>
-    <circle cx="640" cy="62" r="4" fill="#22d3ee"/>
-    <text x="656" y="66" font-size="15" font-weight="600" fill="#f4f4f5">60/60 answers correct</text>
-    <text x="656" y="86" font-size="11" fill="#71717a">active arm, no MCP bypass</text>
+    <circle cx="640" cy="54" r="4" fill="#22d3ee"/>
+    <text x="656" y="58" font-size="15" font-weight="600" fill="#f4f4f5">60/60 answers correct</text>
+    <text x="656" y="78" font-size="11" fill="#71717a">active arm, no MCP bypass</text>
   </g>
   <g>
-    <circle cx="640" cy="122" r="4" fill="#71717a"/>
-    <text x="656" y="126" font-size="15" font-weight="600" fill="#f4f4f5">0 bypasses · 0 rehydrations</text>
-    <text x="656" y="146" font-size="11" fill="#71717a">verified from raw Codex transcripts</text>
+    <circle cx="640" cy="104" r="4" fill="#71717a"/>
+    <text x="656" y="108" font-size="15" font-weight="600" fill="#f4f4f5">0 bypasses · 0 rehydrations</text>
+    <text x="656" y="128" font-size="11" fill="#71717a">verified from raw Codex transcripts</text>
   </g>
   <g>
-    <circle cx="640" cy="182" r="4" fill="#71717a"/>
-    <text x="656" y="186" font-size="15" font-weight="600" fill="#f4f4f5">1 control miss (baseline arm)</text>
-    <text x="656" y="206" font-size="11" fill="#71717a">case-005-search: model counted 9 vs 10</text>
+    <circle cx="640" cy="154" r="4" fill="#71717a"/>
+    <text x="656" y="158" font-size="15" font-weight="600" fill="#f4f4f5">1 control miss (baseline arm)</text>
+    <text x="656" y="178" font-size="11" fill="#71717a">case-005-search: model counted 9 vs 10</text>
   </g>
 </svg>
