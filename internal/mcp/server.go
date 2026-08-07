@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -64,31 +65,118 @@ func (s *Server) Close() error {
 	return s.db.Close()
 }
 
+// Serve runs the newline-delimited JSON-RPC transport (legacy framing).
+// Spec-compliant MCP clients use ServeSpec instead.
 func (s *Server) Serve(r io.Reader, w io.Writer) error {
 	scanner := bufio.NewScanner(r)
 	// Use a large buffer for potentially large messages
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 
 	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
-		}
-
-		var req jsonRPCRequest
-		if err := json.Unmarshal(line, &req); err != nil {
-			writeError(w, json.RawMessage{}, -32700, "Parse error: "+err.Error())
-			continue
-		}
-
-		resp := s.handle(req)
-		if req.isNotification() {
-			continue
-		}
-		data, _ := json.Marshal(resp)
-		fmt.Fprintln(w, string(data))
+		s.handleMessage(scanner.Bytes(), w)
 	}
 	return scanner.Err()
+}
+
+// ServeSpec runs the MCP-spec stdio transport: Content-Length framed
+// JSON-RPC messages, as required by opencode, Codex, and other spec clients.
+func (s *Server) ServeSpec(r io.Reader, w io.Writer) error {
+	fr := newFrameReader(r)
+	fw := newFrameWriter(w)
+	for {
+		msg, err := fr.next()
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+		s.handleMessage(msg, fw)
+	}
+}
+
+// maxFrameSize bounds inbound MCP frames (matches the legacy scanner cap).
+const maxFrameSize = 1024 * 1024
+
+type frameReader struct {
+	br *bufio.Reader
+}
+
+func newFrameReader(r io.Reader) *frameReader {
+	return &frameReader{br: bufio.NewReader(r)}
+}
+
+// next reads one Content-Length framed message body.
+func (f *frameReader) next() ([]byte, error) {
+	contentLength := -1
+	for {
+		line, err := f.br.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		line = strings.TrimRight(line, "\r\n")
+		if line == "" {
+			break // end of headers
+		}
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("malformed MCP frame header: %q", line)
+		}
+		if strings.EqualFold(strings.TrimSpace(parts[0]), "Content-Length") {
+			n, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+			if err != nil || n < 0 {
+				return nil, fmt.Errorf("invalid Content-Length: %q", parts[1])
+			}
+			contentLength = n
+		}
+	}
+	if contentLength < 0 {
+		return nil, fmt.Errorf("missing Content-Length header")
+	}
+	if contentLength > maxFrameSize {
+		return nil, fmt.Errorf("Content-Length %d exceeds max %d", contentLength, maxFrameSize)
+	}
+	body := make([]byte, contentLength)
+	if _, err := io.ReadFull(f.br, body); err != nil {
+		return nil, err
+	}
+	return body, nil
+}
+
+type frameWriter struct {
+	w io.Writer
+}
+
+func newFrameWriter(w io.Writer) *frameWriter {
+	return &frameWriter{w: w}
+}
+
+func (f *frameWriter) Write(p []byte) (int, error) {
+	if _, err := fmt.Fprintf(f.w, "Content-Length: %d\r\n\r\n", len(p)); err != nil {
+		return 0, err
+	}
+	return f.w.Write(p)
+}
+
+// handleMessage parses and dispatches one JSON-RPC message, writing the
+// response (if any) through w.
+func (s *Server) handleMessage(line []byte, w io.Writer) {
+	if len(line) == 0 {
+		return
+	}
+
+	var req jsonRPCRequest
+	if err := json.Unmarshal(line, &req); err != nil {
+		writeError(w, json.RawMessage{}, -32700, "Parse error: "+err.Error())
+		return
+	}
+
+	resp := s.handle(req)
+	if req.isNotification() {
+		return
+	}
+	data, _ := json.Marshal(resp)
+	fmt.Fprintln(w, string(data))
 }
 
 type jsonRPCRequest struct {
@@ -332,7 +420,7 @@ func (s *Server) execute(command, cwd string) (*toolCallResult, error) {
 		modelText = output
 		modelTokens = rawTokens
 	}
-	responseText := formatToolOutput(recommendation, command, exitCode, rawTokens, modelTokens, artifact.ArtifactID, modelText)
+	responseText := FormatToolOutput(recommendation, command, exitCode, rawTokens, modelTokens, artifact.ArtifactID, modelText)
 	// The policy uses a conservative envelope estimate, but the command text
 	// itself is variable. Re-check the fully rendered response before returning
 	// a reduction recommendation so a long command can never create a false
@@ -342,7 +430,7 @@ func (s *Server) execute(command, cwd string) (*toolCallResult, error) {
 		recommendation = guarded
 		modelText = output
 		modelTokens = rawTokens
-		responseText = formatToolOutput(recommendation, command, exitCode, rawTokens, modelTokens, artifact.ArtifactID, modelText)
+		responseText = FormatToolOutput(recommendation, command, exitCode, rawTokens, modelTokens, artifact.ArtifactID, modelText)
 	}
 
 	// Persist session metrics
@@ -361,7 +449,7 @@ func (s *Server) execute(command, cwd string) (*toolCallResult, error) {
 	}, nil
 }
 
-func formatToolOutput(recommendation Recommendation, command string, exitCode, rawTokens, modelTokens int, artifactID, modelText string) string {
+func FormatToolOutput(recommendation Recommendation, command string, exitCode, rawTokens, modelTokens int, artifactID, modelText string) string {
 	return fmt.Sprintf("[costmax_run] Recommendation: %s\nOutput mode: %s\nCommand: %s\nExit: %d\nRaw tokens: %d\nModel-visible tokens: %d\nArtifact ID: %s\nArtifact URI: cmx://artifact/%s\n---\n%s",
 		recommendation, outputMode(recommendation), command, exitCode, rawTokens, modelTokens, artifactID, artifactID, modelText)
 }

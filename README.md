@@ -19,8 +19,8 @@ for three failing tests, full diffs for a rename, complete build logs for
 one error. CostMax intercepts those commands, returns the model a compact
 summary, and keeps the raw output retrievable by digest.
 
-Local-first: nothing leaves your machine. Codex CLI only, as an opt-in MCP
-server. Hooks are observe-only.
+Local-first: nothing leaves your machine. Codex CLI and opencode, as an
+opt-in MCP server. Hooks are observe-only.
 
 ## Install
 
@@ -151,15 +151,33 @@ Independent audit write-up: [docs/VERIFICATION.md](docs/VERIFICATION.md)
 
 ```bash
 costmaxx hook                 # read a Codex lifecycle event from stdin (observe-only)
-costmaxx mcp                  # start the MCP server (stdio JSON-RPC)
+costmaxx mcp                  # start the MCP server (stdio JSON-RPC, newline framing)
+costmaxx mcp --spec-framing   # MCP spec Content-Length framing (Python SDK, etc.)
 costmaxx install              # add CostMax's named MCP entry to Codex
+costmaxx install --target opencode  # register the MCP server in opencode.jsonc
 costmaxx uninstall            # remove only that entry
 costmaxx doctor               # check binary, config, storage, handshake
 costmaxx status               # process-local metrics
 costmaxx state <session-id>   # task state for a session
 costmaxx report <session-id>  # session report from persisted metrics
 costmaxx gc                   # garbage-collect old artifacts
+costmaxx artifact add         # store raw output from stdin, print cmx:// envelope
+costmaxx artifact retrieve <id>  # print the full stored output of an artifact
 ```
+
+## opencode integration
+
+CostMax is registered as a local stdio MCP server in `opencode.jsonc`
+(`costmaxx install --target opencode` writes the block, backing up first). The
+tool shows up as `costmaxx_costmax_run`.
+
+A companion plugin, `~/.config/opencode/plugins/costmaxx.ts`, auto-compresses
+bash tool results larger than a threshold (default 20k chars) into the same
+`cmx://artifact/<id>` envelope, storing the full raw output — the model can
+retrieve it with `costmaxx artifact retrieve <id>` or the MCP resource.
+Config: `COSTMAX_DISABLE=1` disables the plugin; `COSTMAX_COMPRESS_THRESHOLD`
+or `[reduce] threshold` in `~/.costmax/config.toml` set the cutoff. The
+artifact store is shared with Codex sessions.
 
 ## What CostMax does not claim
 
@@ -170,6 +188,7 @@ costmaxx gc                   # garbage-collect old artifacts
 - **No automatic adoption.** The model must call `costmax_run` explicitly;
   hooks remain observe-only.
 - **Codex-only today.** Hermes, Claude, and other harnesses are future work.
+  opencode is supported via the MCP server and plugin above.
 
 ## Docs
 
