@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/derinbarutcu17/costmaxx/internal/events"
-	"github.com/derinbarutcu17/costmaxx/internal/mcp"
+	"github.com/derinbarutcu17/costmaxx/internal/policy"
 )
 
 func TestMCPRecommendationPolicy(t *testing.T) {
@@ -14,16 +14,16 @@ func TestMCPRecommendationPolicy(t *testing.T) {
 		raw  int
 		out  int
 		has  bool
-		want mcp.Recommendation
+		want policy.Recommendation
 	}{
-		{"short recognized output passes through", events.OutputTest, 100, 20, true, mcp.RecommendationPassthrough},
-		{"long known output reduces", events.OutputTest, 600, 120, true, mcp.RecommendationReduce},
-		{"unknown short output preserves full", events.OutputTerminal, 100, 100, false, mcp.RecommendationPreserveFull},
-		{"lossy terminal summary requires artifact", events.OutputTerminal, 600, 120, true, mcp.RecommendationArtifactRequired},
+		{"short recognized output passes through", events.OutputTest, 100, 20, true, policy.RecommendationPassthrough},
+		{"long known output reduces", events.OutputTest, 600, 120, true, policy.RecommendationReduce},
+		{"unknown short output preserves full", events.OutputTerminal, 100, 100, false, policy.RecommendationPreserveFull},
+		{"lossy terminal summary requires artifact", events.OutputTerminal, 600, 120, true, policy.RecommendationArtifactRequired},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := mcp.Recommend(tt.cat, tt.raw, tt.out, tt.has); got != tt.want {
+			if got := policy.Recommend(tt.cat, tt.raw, tt.out, tt.has); got != tt.want {
 				t.Fatalf("Recommend() = %q, want %q", got, tt.want)
 			}
 		})

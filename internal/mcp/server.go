@@ -16,6 +16,7 @@ import (
 	"github.com/derinbarutcu17/costmaxx/internal/artifacts"
 	"github.com/derinbarutcu17/costmaxx/internal/config"
 	"github.com/derinbarutcu17/costmaxx/internal/events"
+	"github.com/derinbarutcu17/costmaxx/internal/pipeline"
 	"github.com/derinbarutcu17/costmaxx/internal/privacy"
 	"github.com/derinbarutcu17/costmaxx/internal/reducers"
 	"github.com/derinbarutcu17/costmaxx/internal/store"
@@ -366,76 +367,19 @@ func (s *Server) execute(command, cwd string) (*toolCallResult, error) {
 
 	output := string(raw)
 
-	if s.redactor.ContainsSecrets(output) {
-		output = s.redactor.RedactOutput(output)
-	}
-
-	// Store raw evidence
-	artifact, storeErr := s.artStore.Store([]byte(output), uuid.New().String(), command, exitCode)
-	if storeErr != nil {
-		return nil, fmt.Errorf("store artifact: %w", storeErr)
-	}
-
-	if err := s.db.InsertArtifact(artifact); err != nil {
-		return nil, fmt.Errorf("insert artifact metadata: %w", err)
-	}
-
-	// Classify and reduce
-	category := s.classifier.Classify("mcp_costmax_run", command, output, exitCode, int64(len(output)))
-	reducer := s.reducers.Select(category, command, exitCode, int64(len(output)))
-
-	compactText := output
-	compactTokens := len(output) / 4
-	var reduction *artifacts.ReductionRecord
-
-	if reducer != nil {
-		var redErr error
-		reduction, redErr = reducer.Reduce(output, artifacts.ReducerMetadata{
-			Command:  command,
-			ExitCode: exitCode,
-			Category: string(category),
-			ToolName: artifact.ArtifactID,
-			Size:     int64(len(output)),
-		})
-		if redErr == nil {
-			// Reducers use deterministic IDs for unit-test readability. A live
-			// artifact may be reduced more than once with the same byte length,
-			// so persist a per-artifact ID to avoid silently colliding on the
-			// reduction_records primary key.
-			reduction.ReductionID = "red-" + artifact.ArtifactID
-			reduction.ArtifactID = artifact.ArtifactID
-			if err := s.db.InsertReduction(reduction); err != nil {
-				return nil, fmt.Errorf("insert reduction metadata: %w", err)
-			}
-			compactText = reduction.CompactContent
-			compactTokens = reduction.CompactTokenEst
-		}
-	}
-
-	rawTokens := len(output) / 4
-	recommendation := Recommend(category, rawTokens, compactTokens, reduction != nil)
-	modelText := compactText
-	modelTokens := compactTokens
-	if recommendation == RecommendationPassthrough || recommendation == RecommendationPreserveFull {
-		modelText = output
-		modelTokens = rawTokens
-	}
-	responseText := FormatToolOutput(recommendation, command, exitCode, rawTokens, modelTokens, artifact.ArtifactID, modelText)
-	// The policy uses a conservative envelope estimate, but the command text
-	// itself is variable. Re-check the fully rendered response before returning
-	// a reduction recommendation so a long command can never create a false
-	// saving.
-	guarded := GuardRecommendation(recommendation, rawTokens, len(responseText)/4)
-	if guarded != recommendation {
-		recommendation = guarded
-		modelText = output
-		modelTokens = rawTokens
-		responseText = FormatToolOutput(recommendation, command, exitCode, rawTokens, modelTokens, artifact.ArtifactID, modelText)
-	}
-
-	// Persist session metrics
-	if err := s.db.InsertSessionMetrics(s.sessionID, rawTokens, modelTokens, 1, 1); err != nil {
-		return nil, fmt.Errorf("insert session metrics: %w", err)
+	// Delegate the shared ingestion chain (redact, store, classify, reduce,
+	// recommend, guard, metrics) to the shared pipeline so the MCP tool and
+	// the CLI artifact add command emit byte-identical envelopes.
+	responseText, err := pipeline.Process(pipeline.Deps{
+		Store:      s.artStore,
+		DB:         s.db,
+		Classifier: s.classifier,
+		Registry:   s.reducers,
+		Redactor:   s.redactor,
+		SessionID:  s.sessionID,
+	}, output, command, exitCode, "mcp_costmax_run")
+	if err != nil {
+		return nil, err
 	}
 
 	return &toolCallResult{
@@ -447,18 +391,6 @@ func (s *Server) execute(command, cwd string) (*toolCallResult, error) {
 		// The model must receive diagnostics for expected failing tests/builds.
 		IsError: false,
 	}, nil
-}
-
-func FormatToolOutput(recommendation Recommendation, command string, exitCode, rawTokens, modelTokens int, artifactID, modelText string) string {
-	return fmt.Sprintf("[costmax_run] Recommendation: %s\nOutput mode: %s\nCommand: %s\nExit: %d\nRaw tokens: %d\nModel-visible tokens: %d\nArtifact ID: %s\nArtifact URI: cmx://artifact/%s\n---\n%s",
-		recommendation, outputMode(recommendation), command, exitCode, rawTokens, modelTokens, artifactID, artifactID, modelText)
-}
-
-func outputMode(recommendation Recommendation) string {
-	if recommendation == RecommendationReduce || recommendation == RecommendationArtifactRequired {
-		return "compact summary"
-	}
-	return "unmodified output"
 }
 
 func (s *Server) handleResourceRead(req jsonRPCRequest) jsonRPCResponse {

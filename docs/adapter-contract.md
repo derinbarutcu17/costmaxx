@@ -40,5 +40,6 @@ type Adapter interface {
 | Harness | Adapter | Status |
 |---------|---------|--------|
 | Codex CLI | `internal/adapters/codex/` | Observe mode only |
-| Hermes | `internal/adapters/hermes/` | Future |
-| Claude Code | `internal/adapters/claude/` | Future |
+
+Hermes and Claude Code adapters were deleted; Codex is the only adapter.
+opencode is supported via the MCP server and plugin (`costmaxx install --target opencode`), not an adapter.

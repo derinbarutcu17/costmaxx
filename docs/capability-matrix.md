@@ -14,8 +14,8 @@
 | Persist per-session metrics | ✓ (SQLite session_metrics table) |
 | Numbered DB migrations | ✓ (v1→v2→v3, handles old task_id schema) |
 | Lifecycle hook coverage | SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PreCompact, Stop, SessionEnd |
-| Hermes adapter | ✗ (future) |
-| Claude Code adapter | ✗ (future) |
+| Hermes adapter | ✗ (deleted; Codex is the only adapter) |
+| Claude Code adapter | ✗ (deleted; opencode is supported via MCP + plugin, not an adapter) |
 | MCP `costmax_run` execution and evidence retrieval | ✓ (opt-in active path) |
 | Active hook output replacement | ✗ (Codex hook limitation; MCP path is separate) |
 | Transcript-backed benchmark runner | ✓ (bounded 20-case Codex evaluator) |

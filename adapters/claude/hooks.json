@@ -1,6 +1,0 @@
-{
-  "preToolUse": "costmax hook pre-tool",
-  "postToolUse": "costmax hook post-tool",
-  "sessionStart": "costmax hook session-start",
-  "sessionEnd": "costmax hook session-end"
-}

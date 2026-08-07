@@ -15,9 +15,6 @@ func (r *Reducer) Name() string    { return "generic" }
 func (r *Reducer) Version() string { return "1.0.0" }
 
 func (r *Reducer) CanHandle(category string, command string, exitCode int, size int64) float64 {
-	if category == "generic" && size > 2000 {
-		return 0.6
-	}
 	if size > 4000 {
 		return 0.5
 	}

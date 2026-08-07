@@ -187,8 +187,8 @@ artifact store is shared with Codex sessions.
   fixtures, not arbitrary production repositories.
 - **No automatic adoption.** The model must call `costmax_run` explicitly;
   hooks remain observe-only.
-- **Codex-only today.** Hermes, Claude, and other harnesses are future work.
-  opencode is supported via the MCP server and plugin above.
+- **Codex-only adapter.** Claude/Hermes adapters were removed; opencode is
+  supported via the MCP server and plugin above.
 
 ## Docs
 

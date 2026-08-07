@@ -7,14 +7,18 @@ Separate observation, storage, reduction, state projection, and delivery.
 ## Components
 
 1. **CLI and Configuration Layer** — `cmd/costmax/main.go`, `internal/config/`
-2. **Codex Hook Adapter** — `internal/adapters/codex/` (stdin JSON lifecycle hooks)
-3. **Artifact Store** — `internal/artifacts/` (content-addressed, zstd-compressed)
-4. **Output Classifier** — `internal/events/classifier.go`
-5. **Deterministic Reducer Pipeline** — `internal/reducers/`
-6. **Task-State Projector** — `internal/state/`
-7. **Context Composer** — `internal/context/`
-8. **Metrics Engine** — `internal/metrics/`
-9. **SQLite Storage** — `internal/store/` (events, task state, artifact metadata, reduction records, session metrics)
+2. **Codex Adapter** — `internal/adapters/codex/` (stdin JSON lifecycle hooks)
+3. **Adapter Protocol / Capability Set** — `internal/adapters/protocol/` (Adapter interface, CapabilitySet)
+4. **MCP Transport** — `internal/mcp/` (opt-in `costmax_run` active path)
+5. **Artifact Store** — `internal/artifacts/` (content-addressed, zstd-compressed)
+6. **Ingest Pipeline** — `internal/pipeline/` (shared ingestion for hooks and MCP)
+7. **Output Classifier** — `internal/events/classifier.go`
+8. **Deterministic Reducer Pipeline** — `internal/reducers/`
+9. **Recommendation / Format Policy** — `internal/policy/`
+10. **Task-State Projector** — `internal/state/`
+11. **Metrics Engine** — `internal/metrics/`
+12. **Privacy Layer** — `internal/privacy/`
+13. **SQLite Storage** — `internal/store/` (events, task state, artifact metadata, reduction records, session metrics)
 
 ## Hook Data Flow (observe-only)
 
@@ -50,4 +54,5 @@ artifact_id → SQLite metadata lookup → content_digest → SHA-256 addressed 
 - **session state restored at SessionStart resume**, not at PostCompact (Codex limitation)
 - **MCP active path**: working and transcript-verified; it is opt-in and does
   not replace Codex's built-in Bash output
-- **Hermes / Claude Code adapters**: future only
+- **Adapters**: Codex is the only adapter; Claude/Hermes adapters were removed.
+  opencode is supported via the MCP server and plugin, not an adapter.

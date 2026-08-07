@@ -46,14 +46,14 @@ func TestReducersRobustness(t *testing.T) {
 		"threshold":  strings.Repeat("line of output\n", 100), // ~1400 bytes, over the 1000 size gate
 		"malformed":  "not what the regexes expect at all\n" + strings.Repeat("x", 500),
 		"one line":   "just one line",
-		"large":      strings.Repeat("some output line\n", 180), // ~3400 bytes, over every gate
+		"large":      strings.Repeat("some output line\n", 260), // ~4900 bytes, over every gate
 	}
 
 	for _, c := range base {
 		for inName, in := range inputs {
 			sel := reg.Select(events.OutputCategory(c.category), c.command, c.exit, int64(len(in)))
 			if sel == nil {
-				// terminal gates at >1000 bytes, generic at >2000: small
+				// terminal gates at >1000 bytes, generic at >4000: small
 				// inputs with no reducer are by design (passthrough path).
 				if len(in) >= 2000 {
 					t.Errorf("%s/%s: no reducer selected for %d bytes", c.category, inName, len(in))
