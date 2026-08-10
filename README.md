@@ -160,10 +160,29 @@ costmaxx doctor               # check binary, config, storage, handshake
 costmaxx status               # process-local metrics
 costmaxx state <session-id>   # task state for a session
 costmaxx report <session-id>  # session report from persisted metrics
-costmaxx gc                   # garbage-collect old artifacts
+costmaxx gc                   # garbage-collect old artifacts (files + metadata)
+costmaxx replay <id>          # re-run the stored command of an artifact
 costmaxx artifact add         # store raw output from stdin, print cmx:// envelope
 costmaxx artifact retrieve <id>  # print the full stored output of an artifact
+costmaxx artifact path <id>   # print the on-disk storage path of an artifact
 ```
+
+## The receipt
+
+Every envelope carries a machine-parseable `Receipt:` line so agents can act
+without fetching the artifact:
+
+```
+Receipt: kept 15/78 lines | dropped 3284 B | tests failed: TestAuth1, TestAuth2, +2 more | replay: costmaxx replay 3ebf2cff-…
+Receipt: replay: costmaxx replay 3ebf2cff-…        # passthrough (nothing cut)
+```
+
+- `kept X/Y lines` and `dropped N B` appear only when output was actually
+  reduced; failing test names are capped at five (deduped, then `+N more`).
+- `replay` re-runs the stored command in its stored working directory
+  (`--cwd` on `artifact add`), propagating the original exit code.
+- The full raw output is always stored and retrievable via
+  `artifact retrieve <id>` or the `cmx://artifact/<id>` MCP resource.
 
 ## opencode integration
 

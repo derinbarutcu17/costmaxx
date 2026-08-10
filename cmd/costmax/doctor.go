@@ -18,8 +18,9 @@ import (
 var optionalChecks = map[string]bool{"opencode_mcp_config": true}
 
 var doctorCmd = &cobra.Command{
-	Use:   "doctor",
-	Short: "Verify CostMax's Codex MCP setup",
+	Use:          "doctor",
+	SilenceUsage: true,
+	Short:        "Verify CostMax's Codex MCP setup",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		results := doctorResults()
 		failed := false

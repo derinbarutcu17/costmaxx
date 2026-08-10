@@ -56,6 +56,7 @@ func annotateJSONC(text string) (inString, inLine, inBlock []bool, depth []int) 
 			if c == '*' && i+1 < n && text[i+1] == '/' {
 				inBlock[i+1] = true
 				i++
+				bc = false
 			}
 		case s:
 			inString[i] = true
@@ -511,6 +512,11 @@ func uninstallOpenCodeMCP() (string, string, error) {
 				delStart = last
 			}
 			newText = newText[:delStart] + newText[nve:]
+			// A removed FIRST key leaves the comma that separated it from
+			// the next property dangling right after the join point; drop it.
+			if i := skipWSComments(newText, delStart, len(newText)); i < len(newText) && newText[i] == ',' {
+				newText = newText[:i] + newText[i+1:]
+			}
 		}
 	}
 

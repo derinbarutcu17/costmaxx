@@ -21,7 +21,14 @@ type DB struct {
 }
 
 func Open(path string) (*DB, error) {
-	db, err := sql.Open("sqlite", path+"?_journal_mode=WAL&_busy_timeout=5000")
+	// modernc.org/sqlite DSN pragmas: mattn-style `_journal_mode=WAL` params
+	// are silently ignored by this driver, which leaves journal_mode=delete
+	// (whole-file locking) and no busy timeout — both fatal under concurrent
+	// processes. The _pragma=NAME(VALUE) form actually applies, and the
+	// busy_timeout pragma must come FIRST: the journal_mode(WAL) switch takes
+	// an exclusive lock, and without a pre-set timeout that lock attempt
+	// fails instantly under contention.
+	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
@@ -34,6 +41,9 @@ func Open(path string) (*DB, error) {
 			return s, nil
 		} else if attempt >= 4 || !isBusy(err) {
 			db.Close()
+			if strings.Contains(strings.ToLower(err.Error()), "not a database") {
+				return nil, fmt.Errorf("migrate: %w (the store file %s is not a valid SQLite database — delete it to reset the store, or restore from a backup)", err, path)
+			}
 			return nil, fmt.Errorf("migrate: %w", err)
 		}
 		time.Sleep(150 * time.Millisecond)
@@ -43,6 +53,12 @@ func Open(path string) (*DB, error) {
 func isBusy(err error) bool {
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "database is locked") || strings.Contains(msg, "sqlite_busy")
+}
+
+// isDupColumn reports the SQLite error raised when an ALTER TABLE attempts
+// to add a column that already exists.
+func isDupColumn(err error) bool {
+	return strings.Contains(strings.ToLower(err.Error()), "duplicate column name")
 }
 
 func (s *DB) Close() error {
@@ -90,6 +106,23 @@ func (s *DB) applyMigration(v int) error {
 			// Fresh or already migrated — just ensure latest schema
 			if _, err := s.db.Exec(migrationFor(1)); err != nil {
 				return fmt.Errorf("schema create: %w", err)
+			}
+		}
+	} else if v == 4 {
+		// Idempotent column add: concurrent processes racing a fresh DB can
+		// both reach this migration before either records the version row.
+		// Check-then-act is still a race, so tolerate the duplicate-column
+		// error when another process won it.
+		hasCwd, err := s.hasColumn("artifacts", "cwd")
+		if err != nil {
+			return fmt.Errorf("migration v%d: %w", v, err)
+		}
+		if !hasCwd {
+			if _, err := s.db.Exec(`ALTER TABLE artifacts ADD COLUMN cwd TEXT DEFAULT ''`); err != nil {
+				if isDupColumn(err) {
+					return nil
+				}
+				return fmt.Errorf("migration v%d: %w", v, err)
 			}
 		}
 	} else {
@@ -151,10 +184,31 @@ func (s *DB) InsertArtifact(a *artifacts.EvidenceArtifact) error {
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.ArtifactID, a.ContentDigest, a.MediaType, a.Encoding,
 		a.OriginalBytes, a.CompressedBytes, a.EstimatedTokens, a.StoragePath,
-		a.SourceEventID, a.Command, a.Cwd, a.ExitCode, a.CreatedAt,
+		a.SourceEventID, a.Command, a.Cwd, a.ExitCode,
+		// Normalize to RFC3339Nano so every read path parses identically;
+		// the driver's raw time.Time format is not round-trippable.
+		a.CreatedAt.UTC().Format(time.RFC3339Nano),
 		a.RetentionClass, a.RedactionStatus,
 	)
 	return err
+}
+
+// parseArtifactTime reads the created_at column. New rows are written as
+// RFC3339Nano; older rows may carry the driver's raw time.Time string, so
+// fall back to that before giving up.
+func parseArtifactTime(s string) time.Time {
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t
+		}
+	}
+	// Go's default time.Time string: "2026-08-11 00:05:49.514867 +0200 CEST m=+0.020757584"
+	if i := strings.Index(s, " m="); i > 0 {
+		if t, err := time.Parse("2006-01-02 15:04:05.999999999 -0700 MST", s[:i]); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
 }
 
 func (s *DB) GetArtifact(artifactID string) (*artifacts.EvidenceArtifact, error) {
@@ -176,7 +230,7 @@ func (s *DB) GetArtifact(artifactID string) (*artifacts.EvidenceArtifact, error)
 	if err != nil {
 		return nil, err
 	}
-	a.CreatedAt, _ = time.Parse(time.RFC3339, ts)
+	a.CreatedAt = parseArtifactTime(ts)
 	return &a, nil
 }
 
@@ -199,8 +253,54 @@ func (s *DB) GetArtifactByDigest(digest string) (*artifacts.EvidenceArtifact, er
 	if err != nil {
 		return nil, err
 	}
-	a.CreatedAt, _ = time.Parse(time.RFC3339, ts)
+	a.CreatedAt = parseArtifactTime(ts)
 	return &a, nil
+}
+
+// ListArtifacts returns all persisted artifact metadata, ordered by creation
+// time. Used by GC so file deletion and metadata deletion stay consistent.
+func (s *DB) ListArtifacts() ([]*artifacts.EvidenceArtifact, error) {
+	rows, err := s.db.Query(
+		`SELECT artifact_id, content_digest, media_type, encoding, original_bytes,
+		 compressed_bytes, estimated_tokens, storage_path, source_event_id,
+		 command, cwd, exit_code, created_at, retention_class, redaction_status
+		FROM artifacts ORDER BY created_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []*artifacts.EvidenceArtifact
+	for rows.Next() {
+		var a artifacts.EvidenceArtifact
+		var ts string
+		if err := rows.Scan(&a.ArtifactID, &a.ContentDigest, &a.MediaType, &a.Encoding,
+			&a.OriginalBytes, &a.CompressedBytes, &a.EstimatedTokens, &a.StoragePath,
+			&a.SourceEventID, &a.Command, &a.Cwd, &a.ExitCode, &ts,
+			&a.RetentionClass, &a.RedactionStatus); err != nil {
+			return nil, err
+		}
+		a.CreatedAt = parseArtifactTime(ts)
+		out = append(out, &a)
+	}
+	return out, rows.Err()
+}
+
+// DeleteArtifact removes an artifact row (and its reduction records) by
+// artifact ID.
+func (s *DB) DeleteArtifact(artifactID string) error {
+	if _, err := s.db.Exec(`DELETE FROM reduction_records WHERE artifact_id = ?`, artifactID); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`DELETE FROM artifacts WHERE artifact_id = ?`, artifactID)
+	return err
+}
+
+// ArtifactCount reports how many artifact rows remain (test/inspection aid).
+func (s *DB) ArtifactCount() (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM artifacts`).Scan(&n)
+	return n, err
 }
 
 func (s *DB) InsertReduction(r *artifacts.ReductionRecord) error {

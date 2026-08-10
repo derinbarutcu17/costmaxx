@@ -234,6 +234,10 @@ func (s *Server) handle(req jsonRPCRequest) jsonRPCResponse {
 		return s.handleToolCall(req)
 	case "resources/read":
 		return s.handleResourceRead(req)
+	case "ping":
+		// MCP spec: ping must be answered with an empty result; clients use
+		// it for liveness checks.
+		return jsonRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{}}
 	default:
 		return jsonRPCResponse{
 			JSONRPC: "2.0",

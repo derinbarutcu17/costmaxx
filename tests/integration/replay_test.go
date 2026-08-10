@@ -102,3 +102,30 @@ func TestReplayUnknownArtifact(t *testing.T) {
 		t.Fatal("replay of unknown artifact should error")
 	}
 }
+
+func TestReplayMissingCwdFailsCleanly(t *testing.T) {
+	home := newIsolatedHome(t)
+	gone := filepath.Join(t.TempDir(), "does-not-exist")
+	cmd := exec.Command(costmaxBinary, "artifact", "add", "--command", "pwd", "--cwd", gone, "--exit-code", "0")
+	cmd.Env = append(os.Environ(), "HOME="+home)
+	cmd.Stdin = strings.NewReader("payload\n")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("artifact add failed: %v", err)
+	}
+	id := extractArtifactID(t, string(out))
+
+	replay := exec.Command(costmaxBinary, "replay", id)
+	replay.Env = append(os.Environ(), "HOME="+home)
+	out, err = replay.CombinedOutput()
+	if err == nil {
+		t.Fatal("replay with deleted cwd should fail")
+	}
+	text := string(out)
+	if strings.Contains(text, "Usage:") || strings.Contains(text, "Flags:") {
+		t.Errorf("replay runtime failure must not dump usage:\n%s", text)
+	}
+	if !strings.Contains(text, "chdir") {
+		t.Errorf("expected chdir error, got:\n%s", text)
+	}
+}

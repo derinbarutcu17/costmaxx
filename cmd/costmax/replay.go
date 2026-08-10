@@ -13,6 +13,9 @@ var replayCmd = &cobra.Command{
 	Use:   "replay <artifact-id>",
 	Short: "Re-run the stored command of an artifact and print its output",
 	Args:  cobra.ExactArgs(1),
+	// Runtime failures (missing cwd, dead command) are not usage errors; do
+	// not dump the full help text at the user for them.
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		meta, err := db.GetArtifact(args[0])
 		if err != nil {

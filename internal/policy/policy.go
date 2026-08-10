@@ -80,12 +80,23 @@ func FormatReceipt(keptLines, rawLines, droppedBytes int, failedTests []string, 
 	var b strings.Builder
 	fmt.Fprintf(&b, "Receipt: kept %d/%d lines | dropped %d B", keptLines, rawLines, droppedBytes)
 	if len(failedTests) > 0 {
+		// Dedupe: logs repeat failure lines (retries, dual reporters), and a
+		// duplicated name would read as two different failures.
+		seen := make(map[string]struct{}, len(failedTests))
+		unique := failedTests[:0]
+		for _, t := range failedTests {
+			if _, ok := seen[t]; ok {
+				continue
+			}
+			seen[t] = struct{}{}
+			unique = append(unique, t)
+		}
 		b.WriteString(" | tests failed: ")
-		if len(failedTests) <= 5 {
-			b.WriteString(strings.Join(failedTests, ", "))
+		if len(unique) <= 5 {
+			b.WriteString(strings.Join(unique, ", "))
 		} else {
-			b.WriteString(strings.Join(failedTests[:5], ", "))
-			fmt.Fprintf(&b, ", +%d more", len(failedTests)-5)
+			b.WriteString(strings.Join(unique[:5], ", "))
+			fmt.Fprintf(&b, ", +%d more", len(unique)-5)
 		}
 	}
 	fmt.Fprintf(&b, " | replay: costmaxx replay %s", artifactID)

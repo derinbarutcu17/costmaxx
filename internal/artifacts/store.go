@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -138,6 +139,9 @@ func (s *Store) ReadRange(artifact *EvidenceArtifact, start, end int) ([]byte, e
 	return bytes.Join(lines[start:end], []byte("\n")), nil
 }
 
+// DeleteOlderThan removes artifact files older than age. This is the
+// file-only pass used when no metadata store is available; the gc command
+// uses RemoveDigest + its own metadata bookkeeping for DB consistency.
 func (s *Store) DeleteOlderThan(age time.Duration) error {
 	return filepath.Walk(s.baseDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
@@ -148,6 +152,39 @@ func (s *Store) DeleteOlderThan(age time.Duration) error {
 		}
 		return nil
 	})
+}
+
+// RemoveDigest removes the file for a digest, tolerating a missing file
+// (already collected or never written).
+func (s *Store) RemoveDigest(digest string) error {
+	path := filepath.Join(s.baseDir, "sha256", digest[:2], digest[2:4], digest+".zst")
+	err := os.Remove(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
+// BaseDir exposes the artifact directory for maintenance sweeps.
+func (s *Store) BaseDir() string {
+	return s.baseDir
+}
+
+// OrphanDigests returns digests of files on disk that no metadata row
+// references, so gc can sweep leftovers from crashes or manual deletion.
+func (s *Store) OrphanDigests(known map[string]bool) []string {
+	var orphans []string
+	filepath.Walk(s.baseDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+		digest := strings.TrimSuffix(filepath.Base(path), ".zst")
+		if !known[digest] {
+			orphans = append(orphans, path)
+		}
+		return nil
+	})
+	return orphans
 }
 
 func estimateTokens(data []byte) int {

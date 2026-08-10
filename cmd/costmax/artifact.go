@@ -54,9 +54,10 @@ var artifactAddCmd = &cobra.Command{
 }
 
 var artifactPathCmd = &cobra.Command{
-	Use:   "path <artifact-id>",
-	Short: "Print the on-disk storage path of a stored artifact",
-	Args:  cobra.ExactArgs(1),
+	Use:          "path <artifact-id>",
+	SilenceUsage: true,
+	Short:        "Print the on-disk storage path of a stored artifact",
+	Args:         cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		meta, err := db.GetArtifact(args[0])
 		if err != nil {
@@ -71,9 +72,10 @@ var artifactPathCmd = &cobra.Command{
 }
 
 var artifactRetrieveCmd = &cobra.Command{
-	Use:   "retrieve <artifact-id>",
-	Short: "Print the full raw content of a stored artifact",
-	Args:  cobra.ExactArgs(1),
+	Use:          "retrieve <artifact-id>",
+	SilenceUsage: true,
+	Short:        "Print the full raw content of a stored artifact",
+	Args:         cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		meta, err := db.GetArtifact(args[0])
 		if err != nil {

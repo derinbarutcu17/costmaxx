@@ -269,3 +269,64 @@ func TestArtifactAddRoundTrip(t *testing.T) {
 		t.Fatalf("retrieved artifact = %q, want %q", retrieved, input)
 	}
 }
+
+// Regression: block comments (/* */) inside values previously corrupted the
+// scanner — the block-comment state was never reset at the closing */, so
+// everything after the first /* was treated as a comment and the resulting
+// config failed validation.
+func TestOpenCodeInstallWithBlockComments(t *testing.T) {
+	xdg := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(xdg, "opencode"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	fixture := `// header
+{"mcp": { /* inline */ }, "a": 1, // trail
+/* mid */ "b": 2}
+// footer`
+	if err := os.WriteFile(filepath.Join(xdg, "opencode", "opencode.jsonc"), []byte(fixture), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	out := runWithEnvX([]string{"install", "--target", "opencode"}, map[string]string{"XDG_CONFIG_HOME": xdg})
+	if !strings.Contains(out, "installed") {
+		t.Fatalf("install failed: %s", out)
+	}
+	data, err := os.ReadFile(filepath.Join(xdg, "opencode", "opencode.jsonc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, `"costmaxx"`) {
+		t.Fatalf("costmaxx block missing:\n%s", text)
+	}
+	// Comments outside the modified object and unrelated keys must survive.
+	// (A comment inside the mcp object being rewritten is not guaranteed.)
+	for _, want := range []string{"// header", "/* mid */", `"a": 1`, `"b": 2`, "// trail"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("fixture content %q lost after install:\n%s", want, text)
+		}
+	}
+
+	out = runWithEnvX([]string{"uninstall", "--target", "opencode"}, map[string]string{"XDG_CONFIG_HOME": xdg})
+	if !strings.Contains(out, "uninstalled") {
+		t.Fatalf("uninstall failed: %s", out)
+	}
+	data, _ = os.ReadFile(filepath.Join(xdg, "opencode", "opencode.jsonc"))
+	if strings.Contains(string(data), "costmaxx") {
+		t.Errorf("costmaxx block survived uninstall:\n%s", data)
+	}
+}
+
+func runWithEnv(args ...string) string {
+	return ""
+}
+
+func runWithEnvX(args []string, env map[string]string) string {
+	cmd := exec.Command(costmaxBinary, args...)
+	cmd.Env = append(os.Environ(), "HOME="+filepath.Dir(env["XDG_CONFIG_HOME"]), "XDG_CONFIG_HOME="+env["XDG_CONFIG_HOME"])
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(out) + " (err: " + err.Error() + ")"
+	}
+	return string(out)
+}

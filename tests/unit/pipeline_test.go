@@ -179,3 +179,52 @@ func TestProcessEnvelopeCarriesReceipt(t *testing.T) {
 		}
 	}
 }
+
+// Property: for every output category, both toolTags must produce
+// byte-identical envelopes (modulo the random artifact UUID), and the
+// receipt must be present and category-appropriate.
+func TestProcessEnvelopeIdenticalAcrossCategories(t *testing.T) {
+	cases := []struct {
+		name     string
+		command  string
+		exitCode int
+		output   string
+	}{
+		{"test", "go test ./... 2>&1", 1, "--- FAIL: TestAuth (0.1s)\nFAIL\nok 1 passed\n" + strings.Repeat("line\n", 300)},
+		{"build", "go build ./...", 1, "./main.go:10:2: undefined: foo\n" + strings.Repeat("# github.com/x/pkg\n", 200)},
+		{"diff", "git diff", 0, "diff --git a/a.go b/a.go\nindex 000..111 100644\n" + strings.Repeat("+added\n-removed\n", 100)},
+		{"search", "rg -n pattern .", 0, strings.Repeat("src/file.go:1: match here\n", 500)},
+		{"lint", "npx eslint src", 1, strings.Repeat("src/a.js\n 1:10  error  unused  no-unused-vars\n", 400)},
+		{"json", "cat data.json", 0, strings.Repeat(`{"id": 1, "name": "item"}`+"\n", 400)},
+		{"terminal", "make test", 1, strings.Repeat("[1/1] Building... done\n", 300)},
+		{"generic", "run-unknown-tool", 0, strings.Repeat("random output line with content\n", 400)},
+		{"empty", "true", 0, ""},
+		{"binary", "cat b.bin", 0, string([]byte{0, 1, 2, 3}) + strings.Repeat("\x00\xff\n", 100)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a, err := pipeline.Process(newPipelineDeps(t), tc.output, tc.command, "", tc.exitCode, "mcp_costmax_run")
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, err := pipeline.Process(newPipelineDeps(t), tc.output, tc.command, "", tc.exitCode, "cli_artifact_add")
+			if err != nil {
+				t.Fatal(err)
+			}
+			norm := func(s string) string {
+				r := regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
+				return r.ReplaceAllString(s, "NORM")
+			}
+			if norm(a) != norm(b) {
+				t.Errorf("envelopes differ between callers:\n--- mcp ---\n%s\n--- cli ---\n%s", a, b)
+			}
+			if !strings.Contains(a, "Receipt:") {
+				t.Errorf("envelope missing receipt:\n%s", a)
+			}
+			// Reduced outputs must carry the replay hint.
+			if !strings.Contains(a, "replay: costmaxx replay") {
+				t.Errorf("receipt missing replay hint:\n%s", a)
+			}
+		})
+	}
+}

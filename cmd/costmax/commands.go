@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/derinbarutcu17/costmaxx/internal/artifacts"
 	"github.com/derinbarutcu17/costmaxx/internal/mcp"
 )
 
@@ -193,13 +194,62 @@ var gcCmd = &cobra.Command{
 	Short: "Run garbage collection on stored artifacts",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		olderThan, _ := cmd.Flags().GetDuration("older-than")
-		if olderThan == 0 {
-			olderThan = 336 * time.Hour
+		cutoff := time.Now().Add(-olderThan)
+
+		meta, err := db.ListArtifacts()
+		if err != nil {
+			return fmt.Errorf("gc: list artifacts: %w", err)
 		}
-		if err := artStore.DeleteOlderThan(olderThan); err != nil {
-			return fmt.Errorf("gc: %w", err)
+
+		// Content-addressed files can be shared by several artifact rows.
+		// Group by digest: remove the file only when EVERY referencing row is
+		// old; otherwise delete only the old rows and keep the shared file.
+		byDigest := map[string][]*artifacts.EvidenceArtifact{}
+		known := map[string]bool{}
+		for _, a := range meta {
+			byDigest[a.ContentDigest] = append(byDigest[a.ContentDigest], a)
+			known[a.ContentDigest] = true
 		}
-		fmt.Printf("Cleaned artifacts older than %v\n", olderThan)
+
+		removed := 0
+		for digest, rows := range byDigest {
+			old := []*artifacts.EvidenceArtifact{}
+			fresh := 0
+			for _, a := range rows {
+				if a.CreatedAt.Before(cutoff) {
+					old = append(old, a)
+				} else {
+					fresh++
+				}
+			}
+			if len(old) == 0 {
+				continue
+			}
+			// The file can go only when no row survives to reference it.
+			dropFile := fresh == 0
+			for _, a := range old {
+				if dropFile {
+					if err := artStore.RemoveDigest(digest); err != nil {
+						return fmt.Errorf("gc: remove file: %w", err)
+					}
+					dropFile = false // removed once
+				}
+				if err := db.DeleteArtifact(a.ArtifactID); err != nil {
+					return fmt.Errorf("gc: remove metadata: %w", err)
+				}
+				removed++
+			}
+		}
+
+		// Sweep orphan files left behind by crashes or manual edits.
+		for _, orphan := range artStore.OrphanDigests(known) {
+			if err := os.Remove(orphan); err != nil {
+				return fmt.Errorf("gc: remove orphan: %w", err)
+			}
+			removed++
+		}
+
+		fmt.Printf("Cleaned %d artifact(s) older than %v\n", removed, olderThan)
 		return nil
 	},
 }

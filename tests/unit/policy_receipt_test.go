@@ -1,6 +1,7 @@
 package unit
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/derinbarutcu17/costmaxx/internal/policy"
@@ -80,5 +81,27 @@ func TestFormatToolOutputOmitsEmptyReceipt(t *testing.T) {
 		"out"
 	if got != want {
 		t.Errorf("FormatToolOutput without receipt:\n got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestFormatReceiptDedupesFailedTests(t *testing.T) {
+	dup := []string{"TestA", "TestB", "TestA", "TestB", "TestC", "TestA"}
+	r := policy.FormatReceipt(10, 100, 500, dup, "art-1", true)
+	if strings.Count(r, "TestA") != 1 || strings.Count(r, "TestB") != 1 {
+		t.Errorf("duplicate test names not deduped: %s", r)
+	}
+	if !strings.Contains(r, "tests failed: TestA, TestB, TestC") {
+		t.Errorf("deduped list wrong: %s", r)
+	}
+	if strings.Contains(r, "+") {
+		t.Errorf("dedup should drop count below cap, got: %s", r)
+	}
+}
+
+func TestFormatReceiptDedupeThenCap(t *testing.T) {
+	names := []string{"A", "B", "C", "D", "E", "F", "G", "A", "B"}
+	r := policy.FormatReceipt(10, 100, 500, names, "art-1", true)
+	if !strings.Contains(r, "A, B, C, D, E, +2 more") {
+		t.Errorf("dedupe-then-cap wrong: %s", r)
 	}
 }
