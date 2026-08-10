@@ -38,7 +38,7 @@ func NewStore(baseDir string, maxSize int64) (*Store, error) {
 	}, nil
 }
 
-func (s *Store) Store(data []byte, sourceEventID, command string, exitCode int) (*EvidenceArtifact, error) {
+func (s *Store) Store(data []byte, sourceEventID, command, cwd string, exitCode int) (*EvidenceArtifact, error) {
 	if int64(len(data)) > s.maxSize {
 		return nil, fmt.Errorf("artifact too large: %d > %d", len(data), s.maxSize)
 	}
@@ -75,6 +75,7 @@ func (s *Store) Store(data []byte, sourceEventID, command string, exitCode int) 
 		StoragePath:     absPath,
 		SourceEventID:   sourceEventID,
 		Command:         command,
+		Cwd:             cwd,
 		ExitCode:        exitCode,
 		CreatedAt:       time.Now(),
 		RetentionClass:  RetentionSession,

@@ -16,10 +16,10 @@ func TestRecommendBoundaries(t *testing.T) {
 		hasReducer   bool
 		want         policy.Recommendation
 	}{
-		{"raw at 2x overhead", events.OutputTest, 160, 20, true, policy.RecommendationPassthrough},
-		{"raw just above 2x overhead", events.OutputTest, 161, 20, true, policy.RecommendationReduce},
-		{"compact+overhead == raw", events.OutputTest, 200, 120, true, policy.RecommendationPassthrough},
-		{"compact+overhead one below raw", events.OutputTest, 200, 119, true, policy.RecommendationReduce},
+		{"raw at 2x overhead", events.OutputTest, 2 * policy.WrapperOverheadTokens, 20, true, policy.RecommendationPassthrough},
+		{"raw just above 2x overhead", events.OutputTest, 2*policy.WrapperOverheadTokens + 1, 20, true, policy.RecommendationReduce},
+		{"compact+overhead == raw", events.OutputTest, 300, 300 - policy.WrapperOverheadTokens, true, policy.RecommendationPassthrough},
+		{"compact+overhead one below raw", events.OutputTest, 300, 300 - policy.WrapperOverheadTokens - 1, true, policy.RecommendationReduce},
 		{"binary with reducer", events.OutputBinary, 10000, 50, true, policy.RecommendationPreserveFull},
 		{"no reducer huge", events.OutputTest, 10000, 10000, false, policy.RecommendationPreserveFull},
 		{"terminal category", events.OutputTerminal, 1000, 50, true, policy.RecommendationArtifactRequired},

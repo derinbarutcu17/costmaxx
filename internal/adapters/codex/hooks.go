@@ -230,7 +230,7 @@ func (a *Adapter) handlePostToolUse(in HookInput) *HookOutput {
 			output = a.redactor.RedactOutput(output)
 		}
 
-		artifact, storeErr := a.artStore.Store([]byte(output), in.SessionID, command, exitCode)
+		artifact, storeErr := a.artStore.Store([]byte(output), in.SessionID, command, "", exitCode)
 		if storeErr == nil {
 			artifactID = artifact.ArtifactID
 			a.db.InsertArtifact(artifact)

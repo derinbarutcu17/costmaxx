@@ -179,6 +179,14 @@ Config: `COSTMAX_DISABLE=1` disables the plugin; `COSTMAX_COMPRESS_THRESHOLD`
 or `[reduce] threshold` in `~/.costmax/config.toml` set the cutoff. The
 artifact store is shared with Codex sessions.
 
+### CostMax vs output-style skills (e.g. Caveman)
+
+CostMax and skills like [Caveman](https://github.com/JuliusBrussee/caveman)
+are complementary, not competing: Caveman makes the agent *talk* terse
+(saves output tokens, input untouched), while CostMax makes what the agent
+*reads* terse — tool output is compressed and stored losslessly, saving
+input/context tokens, which dominate agentic coding bills. They stack.
+
 ## What CostMax does not claim
 
 - **No billed-dollar savings.** Token figures are `len(text)/4` estimates,

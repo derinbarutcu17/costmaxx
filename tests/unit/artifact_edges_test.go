@@ -21,21 +21,21 @@ func newArtStore(t *testing.T, maxSize int64) (*artifacts.Store, string) {
 
 func TestStoreAtExactMaxSize(t *testing.T) {
 	s, _ := newArtStore(t, 100)
-	if _, err := s.Store(make([]byte, 100), "e", "cmd", 0); err != nil {
+	if _, err := s.Store(make([]byte, 100), "e", "cmd", "", 0); err != nil {
 		t.Errorf("store at exactly maxSize should succeed, got %v", err)
 	}
 }
 
 func TestStoreOverMaxSize(t *testing.T) {
 	s, _ := newArtStore(t, 100)
-	if _, err := s.Store(make([]byte, 101), "e", "cmd", 0); err == nil {
+	if _, err := s.Store(make([]byte, 101), "e", "cmd", "", 0); err == nil {
 		t.Error("store over maxSize should fail")
 	}
 }
 
 func TestReadRangeEdges(t *testing.T) {
 	s, _ := newArtStore(t, 1<<20)
-	a, err := s.Store([]byte("l1\nl2\nl3\nl4\n"), "e", "cmd", 0)
+	a, err := s.Store([]byte("l1\nl2\nl3\nl4\n"), "e", "cmd", "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,11 +71,11 @@ func TestRetrieveByMissingDigest(t *testing.T) {
 func TestDeduplication(t *testing.T) {
 	s, dir := newArtStore(t, 1<<20)
 	data := []byte("identical content for dedup")
-	a1, err := s.Store(data, "e1", "cmd", 0)
+	a1, err := s.Store(data, "e1", "cmd", "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	a2, err := s.Store(data, "e2", "cmd", 0)
+	a2, err := s.Store(data, "e2", "cmd", "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestDeduplication(t *testing.T) {
 // GC removes files but not SQLite metadata rows: the known drift.
 func TestGCRemovesFilesButNotDBRows(t *testing.T) {
 	s, dir := newArtStore(t, 1<<20)
-	artifact, err := s.Store([]byte("gc me"), "e", "cmd", 0)
+	artifact, err := s.Store([]byte("gc me"), "e", "cmd", "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestGCRemovesFilesButNotDBRows(t *testing.T) {
 
 func TestVerifyTamperDetection(t *testing.T) {
 	s, _ := newArtStore(t, 1<<20)
-	a, err := s.Store([]byte("original"), "e", "cmd", 0)
+	a, err := s.Store([]byte("original"), "e", "cmd", "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

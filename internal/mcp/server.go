@@ -377,7 +377,7 @@ func (s *Server) execute(command, cwd string) (*toolCallResult, error) {
 		Registry:   s.reducers,
 		Redactor:   s.redactor,
 		SessionID:  s.sessionID,
-	}, output, command, exitCode, "mcp_costmax_run")
+	}, output, command, cwd, exitCode, "mcp_costmax_run")
 	if err != nil {
 		return nil, err
 	}

@@ -21,6 +21,7 @@ type EvidenceArtifact struct {
 	StoragePath     string         `json:"storage_path"`
 	SourceEventID   string         `json:"source_event_id,omitempty"`
 	Command         string         `json:"command,omitempty"`
+	Cwd             string         `json:"cwd,omitempty"`
 	ExitCode        int            `json:"exit_code"`
 	CreatedAt       time.Time      `json:"created_at"`
 	RetentionClass  RetentionClass `json:"retention_class"`

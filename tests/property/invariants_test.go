@@ -30,7 +30,7 @@ func TestStoreRoundTripPreservesExactContent(t *testing.T) {
 
 	for _, input := range inputs {
 		data := []byte(input)
-		artifact, err := s.Store(data, "test-event", "echo", 0)
+		artifact, err := s.Store(data, "test-event", "echo", "", 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -57,7 +57,7 @@ func TestContentDigestMatchesSha256(t *testing.T) {
 	}
 
 	data := []byte("test content for digest verification")
-	artifact, err := s.Store(data, "test-event", "echo", 0)
+	artifact, err := s.Store(data, "test-event", "echo", "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestStoreRejectsOversizedArtifact(t *testing.T) {
 	}
 
 	data := make([]byte, 200)
-	_, err = s.Store(data, "test-event", "echo", 0)
+	_, err = s.Store(data, "test-event", "echo", "", 0)
 	if err == nil {
 		t.Error("expected error for oversized artifact")
 	}
@@ -97,11 +97,11 @@ func TestIdenticalContentSameDigest(t *testing.T) {
 	}
 
 	data := []byte("identical content")
-	a1, err := s.Store(data, "event-1", "echo", 0)
+	a1, err := s.Store(data, "event-1", "echo", "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	a2, err := s.Store(data, "event-2", "echo", 0)
+	a2, err := s.Store(data, "event-2", "echo", "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestVerifyPassesOnOriginal(t *testing.T) {
 	}
 
 	data := []byte("test data for verification")
-	artifact, err := s.Store(data, "test-event", "echo", 0)
+	artifact, err := s.Store(data, "test-event", "echo", "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

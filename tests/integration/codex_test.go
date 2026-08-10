@@ -45,7 +45,7 @@ func TestArtifactStoreAndRetrieve(t *testing.T) {
 	}
 
 	data := []byte("test output data for storage")
-	artifact, err := s.Store(data, "test-session", "npm test", 0)
+	artifact, err := s.Store(data, "test-session", "npm test", "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

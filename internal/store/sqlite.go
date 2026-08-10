@@ -14,7 +14,7 @@ import (
 	"github.com/derinbarutcu17/costmaxx/internal/state"
 )
 
-const schemaVersion int = 3
+const schemaVersion int = 4
 
 type DB struct {
 	db *sql.DB
@@ -147,11 +147,11 @@ func (s *DB) InsertArtifact(a *artifacts.EvidenceArtifact) error {
 		`INSERT OR IGNORE INTO artifacts
 		(artifact_id, content_digest, media_type, encoding, original_bytes,
 		 compressed_bytes, estimated_tokens, storage_path, source_event_id,
-		 command, exit_code, created_at, retention_class, redaction_status)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 command, cwd, exit_code, created_at, retention_class, redaction_status)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.ArtifactID, a.ContentDigest, a.MediaType, a.Encoding,
 		a.OriginalBytes, a.CompressedBytes, a.EstimatedTokens, a.StoragePath,
-		a.SourceEventID, a.Command, a.ExitCode, a.CreatedAt,
+		a.SourceEventID, a.Command, a.Cwd, a.ExitCode, a.CreatedAt,
 		a.RetentionClass, a.RedactionStatus,
 	)
 	return err
@@ -163,11 +163,11 @@ func (s *DB) GetArtifact(artifactID string) (*artifacts.EvidenceArtifact, error)
 	err := s.db.QueryRow(
 		`SELECT artifact_id, content_digest, media_type, encoding, original_bytes,
 		 compressed_bytes, estimated_tokens, storage_path, source_event_id,
-		 command, exit_code, created_at, retention_class, redaction_status
+		 command, cwd, exit_code, created_at, retention_class, redaction_status
 		FROM artifacts WHERE artifact_id = ?`, artifactID,
 	).Scan(&a.ArtifactID, &a.ContentDigest, &a.MediaType, &a.Encoding,
 		&a.OriginalBytes, &a.CompressedBytes, &a.EstimatedTokens, &a.StoragePath,
-		&a.SourceEventID, &a.Command, &a.ExitCode, &ts,
+		&a.SourceEventID, &a.Command, &a.Cwd, &a.ExitCode, &ts,
 		&a.RetentionClass, &a.RedactionStatus,
 	)
 	if err == sql.ErrNoRows {
@@ -186,11 +186,11 @@ func (s *DB) GetArtifactByDigest(digest string) (*artifacts.EvidenceArtifact, er
 	err := s.db.QueryRow(
 		`SELECT artifact_id, content_digest, media_type, encoding, original_bytes,
 		 compressed_bytes, estimated_tokens, storage_path, source_event_id,
-		 command, exit_code, created_at, retention_class, redaction_status
+		 command, cwd, exit_code, created_at, retention_class, redaction_status
 		FROM artifacts WHERE content_digest = ? LIMIT 1`, digest,
 	).Scan(&a.ArtifactID, &a.ContentDigest, &a.MediaType, &a.Encoding,
 		&a.OriginalBytes, &a.CompressedBytes, &a.EstimatedTokens, &a.StoragePath,
-		&a.SourceEventID, &a.Command, &a.ExitCode, &ts,
+		&a.SourceEventID, &a.Command, &a.Cwd, &a.ExitCode, &ts,
 		&a.RetentionClass, &a.RedactionStatus,
 	)
 	if err == sql.ErrNoRows {
@@ -355,6 +355,12 @@ func migrationFor(v int) string {
 				tool_calls INTEGER DEFAULT 0,
 				updated_at TEXT NOT NULL
 			);
+		`
+	case 4:
+		// cwd column for the replay command: the working directory of the
+		// original execution so `costmaxx replay <id>` can re-run in place.
+		return `
+			ALTER TABLE artifacts ADD COLUMN cwd TEXT DEFAULT '';
 		`
 	default:
 		return ""

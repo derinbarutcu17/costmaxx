@@ -59,7 +59,7 @@ func TestProcessReductionEnvelope(t *testing.T) {
 		fmt.Fprintf(&output, "line %d: this is verbose test output that should be reduced by the terminal reducer\n", i)
 	}
 
-	envelope, err := pipeline.Process(deps, output.String(), command, 0, "mcp_costmax_run")
+	envelope, err := pipeline.Process(deps, output.String(), command, "", 0, "mcp_costmax_run")
 	if err != nil {
 		t.Fatalf("Process: %v", err)
 	}
@@ -93,11 +93,11 @@ func TestProcessEnvelopeByteIdenticalAcrossCallers(t *testing.T) {
 	command := "go test ./..."
 	output := strings.Repeat("=== RUN   TestThing\n--- PASS: TestThing (0.00s)\nPASS\nok  example/m 0.5s\n", 40)
 
-	a, err := pipeline.Process(newPipelineDeps(t), output, command, 1, "mcp_costmax_run")
+	a, err := pipeline.Process(newPipelineDeps(t), output, command, "", 1, "mcp_costmax_run")
 	if err != nil {
 		t.Fatalf("Process (server): %v", err)
 	}
-	b, err := pipeline.Process(newPipelineDeps(t), output, command, 1, "cli_artifact_add")
+	b, err := pipeline.Process(newPipelineDeps(t), output, command, "", 1, "cli_artifact_add")
 	if err != nil {
 		t.Fatalf("Process (cli): %v", err)
 	}
@@ -110,6 +110,8 @@ func TestProcessEnvelopeByteIdenticalAcrossCallers(t *testing.T) {
 	}
 
 	// Fixed envelope fields render exactly as the policy contract specifies.
+	// The tests reducer's compact text is deterministic (124 bytes) for this
+	// fixture, so the receipt counts are fixed too.
 	wantPrefix := "[costmax_run] Recommendation: reduce\n" +
 		"Output mode: compact summary\n" +
 		"Command: go test ./...\n" +
@@ -118,8 +120,62 @@ func TestProcessEnvelopeByteIdenticalAcrossCallers(t *testing.T) {
 		"Model-visible tokens: 31\n" +
 		"Artifact ID: <artifact-id>\n" +
 		"Artifact URI: cmx://artifact/<artifact-id>\n" +
+		"Receipt: kept 6/161 lines | dropped 2756 B | replay: costmaxx replay <artifact-id>\n" +
 		"---\n"
 	if !strings.HasPrefix(na, wantPrefix) {
 		t.Errorf("envelope prefix mismatch:\nwant prefix:\n%s\ngot:\n%s", wantPrefix, na)
+	}
+}
+
+// TestProcessEnvelopeCarriesReceipt proves the model-visible envelope carries
+// a machine-parseable receipt line between the artifact URI and the separator:
+// kept/dropped counts, the failing test names from the reduction record
+// (capped at five), and the replay hint.
+func TestProcessEnvelopeCarriesReceipt(t *testing.T) {
+	deps := newPipelineDeps(t)
+
+	command := "go test ./..."
+	var output strings.Builder
+	for i := 1; i <= 6; i++ {
+		fmt.Fprintf(&output, "=== RUN   TestFoo%d\n--- FAIL: TestFoo%d (0.00s)\n", i, i)
+		for j := 0; j < 8; j++ {
+			fmt.Fprintf(&output, "    foo_test.go:%d: assertion failed: expected %d, got %d\n", i, j, j+1)
+		}
+		output.WriteString("FAIL\n")
+	}
+
+	envelope, err := pipeline.Process(deps, output.String(), command, "", 1, "mcp_costmax_run")
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+
+	if !strings.Contains(envelope, "Recommendation: reduce") {
+		t.Errorf("expected reduce recommendation, got:\n%s", envelope)
+	}
+
+	// The receipt must sit between the Artifact URI line and the separator.
+	envelopeLines := strings.Split(envelope, "\n")
+	receiptLine := ""
+	for i, line := range envelopeLines {
+		if !strings.HasPrefix(line, "Artifact URI:") {
+			continue
+		}
+		if i+2 >= len(envelopeLines) || !strings.HasPrefix(envelopeLines[i+1], "Receipt: ") {
+			t.Fatalf("receipt line missing after Artifact URI:\n%s", envelope)
+		}
+		receiptLine = envelopeLines[i+1]
+		if envelopeLines[i+2] != "---" {
+			t.Errorf("separator must follow the receipt line, got %q", envelopeLines[i+2])
+		}
+		break
+	}
+	if receiptLine == "" {
+		t.Fatalf("no receipt line found in envelope:\n%s", envelope)
+	}
+
+	for _, want := range []string{"kept ", " dropped ", "tests failed: TestFoo1 (0.00s)", ", +1 more", "replay: costmaxx replay "} {
+		if !strings.Contains(receiptLine, want) {
+			t.Errorf("receipt line missing %q: %s", want, receiptLine)
+		}
 	}
 }
