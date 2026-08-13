@@ -43,4 +43,6 @@ type ReductionRecord struct {
 	CompactTokenEst    int      `json:"compact_token_estimate"`
 	ReplacementApplied bool     `json:"replacement_applied"`
 	Reason             string   `json:"reason,omitempty"`
+	// CreatedAt overrides the persisted timestamp (defaults to now when zero).
+	CreatedAt time.Time `json:"created_at,omitempty"`
 }

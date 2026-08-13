@@ -316,9 +316,18 @@ func (s *DB) InsertReduction(r *artifacts.ReductionRecord) error {
 		r.CompactContent, mustJSON(r.StructuredFacts), mustJSON(r.PreservedAnchors),
 		mustJSON(r.OmittedLineRanges), r.OriginalBytes, r.CompactBytes,
 		r.OriginalTokenEst, r.CompactTokenEst, boolToInt(r.ReplacementApplied),
-		r.Reason, time.Now(),
+		r.Reason, reductionTime(r.CreatedAt),
 	)
 	return err
+}
+
+// reductionTime returns the persisted created_at value, defaulting to now
+// when the record carries no explicit timestamp.
+func reductionTime(t time.Time) time.Time {
+	if t.IsZero() {
+		return time.Now()
+	}
+	return t
 }
 
 func (s *DB) ReductionCount() (int, error) {
@@ -351,6 +360,49 @@ func (s *DB) GetSessionMetrics(sessionID string) (rawTokens, compactTokens, arti
 		return 0, 0, 0, 0, nil
 	}
 	return
+}
+
+// SavingsSummary aggregates the persisted metrics for a time window so
+// daily/weekly reports can answer "what did CostMax actually save".
+type SavingsSummary struct {
+	Sessions          int   `json:"sessions"`
+	ToolCalls         int   `json:"tool_calls"`
+	ArtifactsStored   int   `json:"artifacts_stored"`
+	ReductionsApplied int   `json:"reductions_applied"`
+	RawTokens         int64 `json:"raw_tokens"`
+	ModelVisible      int64 `json:"model_visible_tokens"`
+	BytesDropped      int64 `json:"bytes_dropped_from_context"`
+}
+
+func (s *DB) SavingsSummary(since time.Time) (*SavingsSummary, error) {
+	var sum SavingsSummary
+	err := s.db.QueryRow(
+		`SELECT COUNT(*), COALESCE(SUM(raw_tokens),0), COALESCE(SUM(compact_tokens),0),
+		        COALESCE(SUM(artifacts_reduced),0), COALESCE(SUM(tool_calls),0)
+		 FROM session_metrics WHERE updated_at >= ?`,
+		since.Format(time.RFC3339),
+	).Scan(&sum.Sessions, &sum.RawTokens, &sum.ModelVisible, &sum.ArtifactsStored, &sum.ToolCalls)
+	if err != nil {
+		return nil, err
+	}
+
+	// Token totals come from session_metrics (what the model actually saw);
+	// reduction_records contribute the reduction count and the bytes cut
+	// from evidence stored during this window.
+	if err := s.db.QueryRow(
+		`SELECT COUNT(*), COALESCE(SUM(original_bytes - compact_bytes),0)
+		 FROM reduction_records WHERE created_at >= ?`,
+		since.Format(time.RFC3339),
+	).Scan(&sum.ReductionsApplied, &sum.BytesDropped); err != nil {
+		return nil, err
+	}
+
+	if err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM artifacts WHERE created_at >= ?`, since.Format(time.RFC3339),
+	).Scan(&sum.ArtifactsStored); err != nil {
+		return nil, err
+	}
+	return &sum, nil
 }
 
 func migrationFor(v int) string {

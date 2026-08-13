@@ -59,6 +59,7 @@ func init() {
 	rootCmd.AddCommand(disableCmd)
 	rootCmd.AddCommand(resetCmd)
 	rootCmd.AddCommand(gcCmd)
+	rootCmd.AddCommand(savingsCmd)
 	rootCmd.AddCommand(hookCmd)
 	rootCmd.AddCommand(mcpCmd)
 	installCmd.Flags().StringVar(&installTarget, "target", "codex", "MCP config target: codex or opencode")
@@ -79,5 +80,6 @@ func init() {
 	disableCmd.Flags().Bool("session", false, "Disable only for current session")
 	resetCmd.Flags().Bool("session", false, "Reset only current session")
 	gcCmd.Flags().Duration("older-than", 336*time.Hour, "Delete artifacts older than duration")
+	savingsCmd.Flags().Duration("since", 7*24*time.Hour, "Report window (default 168h = 7 days)")
 
 }
