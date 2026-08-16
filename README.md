@@ -1,8 +1,8 @@
 # CostMax
 
-**A local-first efficiency layer for coding agents. It shrinks the tool
-output your agent has to read, keeps the full evidence, and proves the
-saving instead of claiming it.**
+**Your agent burns context on output it barely reads. CostMax shrinks what it
+reads, keeps the full evidence, and measures the saving instead of claiming
+it.**
 
 [![ci](https://github.com/derinbarutcu17/costmaxx/actions/workflows/ci.yml/badge.svg)](https://github.com/derinbarutcu17/costmaxx/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/derinbarutcu17/costmaxx?sort=semver)](https://github.com/derinbarutcu17/costmaxx/releases)
@@ -14,6 +14,27 @@ saving instead of claiming it.**
   <img src="assets/hero-banner.svg" alt="CostMax: 60.6% less model-visible output" width="100%">
 </p>
 
+## Live savings
+
+Measured on the owner's daily stack (opencode + codex, deepseek-v4-flash),
+last 7 days, continuously self-measured via `costmaxx savings`:
+
+| Metric | Value |
+|---|---|
+| Raw input tokens read by the agent | 392,748 |
+| Model-visible tokens after CostMax | 51,820 |
+| **Context cut** | **86.8%** |
+| Tool calls reduced | 53 |
+| Evidence dropped from context, stored & retrievable | 1.04 MB |
+
+We ship the scoreboard, not a screenshot. These figures are `len(text)/4`
+estimates on one user's stack — see [Why you can trust the numbers](#why-you-can-trust-the-numbers) and
+[docs/HONEST-NUMBERS.md](docs/HONEST-NUMBERS.md) for exactly what they mean.
+
+---
+
+## The 30-second story
+
 Coding agents burn tokens on output they barely use: 1,000-line test runs
 for three failing tests, full diffs for a rename, complete build logs for
 one error. CostMax intercepts those commands, returns the model a compact
@@ -22,46 +43,7 @@ summary, and keeps the raw output retrievable by digest.
 Local-first: nothing leaves your machine. Codex CLI and opencode, as an
 opt-in MCP server. Hooks are observe-only.
 
-## Install
-
-```bash
-# From source
-go install github.com/derinbarutcu17/costmaxx/cmd/costmax@latest
-
-# Or a release binary (all platforms in Releases)
-# macOS arm64:
-curl -L -o costmaxx https://github.com/derinbarutcu17/costmaxx/releases/latest/download/costmaxx-darwin-arm64
-chmod +x costmaxx
-```
-
-## Quickstart
-
-Add CostMax's MCP entry to your Codex config (a backup is made first):
-
-```bash
-costmaxx install
-costmaxx doctor
-```
-
-That writes this block to `~/.codex/config.toml`:
-
-```toml
-[mcp_servers.costmaxx]
-command = "/path/to/costmaxx"
-args = ["mcp"]
-```
-
-`costmax_run` is now available to Codex:
-
-> **[`costmax_run`](docs/architecture.md)** — executes a local command and
-> returns a compact, digest-addressable summary. Full output stored locally,
-> retrievable via `cmx://artifact/<id>`.
-
-It executes commands with your process permissions; it is not a sandbox.
-
----
-
-## The same failing test run, two ways
+**Before and after — the same failing test run, two ways:**
 
 <p align="center">
   <img src="assets/before-after.svg" alt="Before and after: full test output vs compact summary" width="100%">
@@ -83,6 +65,68 @@ Every stage is deterministic. The same command, the same output, the same
 compact summary, every time. No model in the loop for reduction, no guesses
 in the policy, no way to claim a saving that the rendered response does not
 deliver.
+
+---
+
+## Three axes, one bill
+
+CostMax is the input side of a trinity that already exists. The other two
+tools are real and excellent; we stack with them, not against them.
+
+| | **CostMax** (this repo) | **[Caveman](https://github.com/JuliusBrussee/caveman)** | **[ponytail](https://github.com/DietrichGebert/ponytail)** |
+|---|---|---|---|
+| Shrinks | **input** — what the agent *reads* (tool output) | **output** — how terse the agent *talks* (prose) | **work** — how little code the agent *writes* (YAGNI) |
+| Mechanism | compress + losslessly store tool output | prompt skill that makes replies terse | prompt skill that makes solutions minimal |
+| Measured | yes — self-measured, continuously | independently benchmarked | independently benchmarked |
+| Evidence integrity | full raw output kept, byte-for-byte retrievable | n/a (nothing discarded) | n/a (nothing discarded) |
+| Stacks with | Caveman + ponytail | CostMax + ponytail | CostMax + Caveman |
+
+One honest line: their numbers come from independent benchmarks; ours are
+self-measured on a single stack. Different methods, same direction — and the
+input side, CostMax's, is the one that dominates agentic bills.
+
+---
+
+## Install
+
+```bash
+# From source
+go install github.com/derinbarutcu17/costmaxx/cmd/costmax@latest
+
+# Or a release binary (all platforms in Releases)
+# macOS arm64:
+curl -L -o costmaxx https://github.com/derinbarutcu17/costmaxx/releases/latest/download/costmaxx-darwin-arm64
+chmod +x costmaxx
+
+# Wire it up (backups made first):
+costmaxx install                      # Codex (~/.codex/config.toml)
+costmaxx install --target opencode    # opencode (opencode.jsonc) + plugin
+```
+
+Per-agent matrix, uninstall, and daily maintenance: [docs/INSTALL.md](docs/INSTALL.md).
+
+## Quickstart
+
+```bash
+costmaxx install
+costmaxx doctor
+```
+
+That writes this block to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.costmaxx]
+command = "/path/to/costmaxx"
+args = ["mcp"]
+```
+
+`costmax_run` is now available to Codex:
+
+> **[`costmax_run`](docs/architecture.md)** — executes a local command and
+> returns a compact, digest-addressable summary. Full output stored locally,
+> retrievable via `cmx://artifact/<id>`.
+
+It executes commands with your process permissions; it is not a sandbox.
 
 ---
 
@@ -143,7 +187,8 @@ python3 scripts/verify-live-results.py results/<your-run> \
 ```
 
 Full retained results: [docs/RESULTS.md](docs/RESULTS.md) ·
-Independent audit write-up: [docs/VERIFICATION.md](docs/VERIFICATION.md)
+Independent audit write-up: [docs/VERIFICATION.md](docs/VERIFICATION.md) ·
+The full honesty brief: [docs/HONEST-NUMBERS.md](docs/HONEST-NUMBERS.md)
 
 ---
 
@@ -158,6 +203,7 @@ costmaxx install --target opencode  # register the MCP server in opencode.jsonc
 costmaxx uninstall            # remove only that entry
 costmaxx doctor               # check binary, config, storage, handshake
 costmaxx status               # process-local metrics
+costmaxx savings              # aggregate savings report (daily/weekly snapshots)
 costmaxx state <session-id>   # task state for a session
 costmaxx report <session-id>  # session report from persisted metrics
 costmaxx gc                   # garbage-collect old artifacts (files + metadata)
@@ -198,13 +244,12 @@ Config: `COSTMAX_DISABLE=1` disables the plugin; `COSTMAX_COMPRESS_THRESHOLD`
 or `[reduce] threshold` in `~/.costmax/config.toml` set the cutoff. The
 artifact store is shared with Codex sessions.
 
-### CostMax vs output-style skills (e.g. Caveman)
+### Ecosystem: stacking, not competing
 
-CostMax and skills like [Caveman](https://github.com/JuliusBrussee/caveman)
-are complementary, not competing: Caveman makes the agent *talk* terse
-(saves output tokens, input untouched), while CostMax makes what the agent
-*reads* terse — tool output is compressed and stored losslessly, saving
-input/context tokens, which dominate agentic coding bills. They stack.
+Pairs with [Caveman](https://github.com/JuliusBrussee/caveman) and
+[ponytail](https://github.com/DietrichGebert/ponytail)-style skills — they
+shape what the agent writes, CostMax shapes what it reads. Same bill, three
+sides.
 
 ## What CostMax does not claim
 
@@ -219,8 +264,8 @@ input/context tokens, which dominate agentic coding bills. They stack.
 
 ## Docs
 
-- [Architecture](docs/architecture.md) · [Reduction format](docs/reduction-format.md)
-- [Privacy model](docs/privacy-model.md) · [Capability matrix](docs/capability-matrix.md)
+- [Install per agent](docs/INSTALL.md) · [Architecture](docs/architecture.md) · [Reduction format](docs/reduction-format.md)
+- [Honest numbers](docs/HONEST-NUMBERS.md) · [Privacy model](docs/privacy-model.md) · [Capability matrix](docs/capability-matrix.md)
 - [Proof plan](docs/PROOF_PLAN.md) · [Evaluation protocol](docs/EVALUATION_PROTOCOL.md)
 
 ## Contributing
