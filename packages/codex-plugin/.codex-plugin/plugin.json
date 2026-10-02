@@ -1,11 +1,20 @@
 {
   "name": "costmaxx",
   "version": "1.1.0",
-  "description": "Codex-only efficiency layer. Hooks observe tool output; the opt-in costmax_run MCP tool reduces large command results and stores retrievable evidence.",
-  "author": "CostMaxx",
+  "description": "Codex efficiency layer with observe-only lifecycle hooks and an opt-in costmax_run MCP tool that reduces large command results while storing retrievable evidence.",
+  "author": {
+    "name": "CostMaxx"
+  },
   "license": "MIT",
-  "hooks": "hooks/hooks.json",
-  "mcp": "mcp/costmax-mcp.json",
-  "skills": ["skills/costmax/"],
-  "minimum_codex_version": "1.0.0"
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "CostMax",
+    "shortDescription": "Reduce verbose command output with retrievable evidence.",
+    "longDescription": "CostMax is a local-first, opt-in MCP tool that returns compact summaries for verbose commands while keeping the complete output retrievable by digest. Codex lifecycle hooks are observe-only.",
+    "developerName": "CostMaxx",
+    "category": "Developer Tools",
+    "capabilities": ["MCP", "Local evidence storage"],
+    "defaultPrompt": "Use CostMax for a verbose local command and keep the full evidence retrievable."
+  }
 }

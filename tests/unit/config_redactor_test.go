@@ -100,26 +100,54 @@ func TestRedactorDetectsKeysAndTokens(t *testing.T) {
 	}
 }
 
-// Common secret formats the redactor currently MISSES. These are findings,
-// not failures: the regexes require the key word directly before '=' or ':'
-// and do not include AWS-style or Bearer formats.
-func TestRedactorMissesCommonFormats(t *testing.T) {
+// Common secret formats the redactor previously MISSED: AWS-style keys,
+// Bearer tokens, and spaced/quoted assignments. These are now detected and
+// redacted; the test pins the fixed behavior.
+func TestRedactorCatchesCommonFormats(t *testing.T) {
 	r := privacy.NewRedactor()
 	for _, c := range []struct {
 		name string
 		in   string
 	}{
+		{"aws access key id", "aws_access_key_id=AKIAIOSFODNN7EXAMPLE"},
 		{"aws secret_access_key format", "aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"},
 		{"bearer token", "Authorization: Bearer abcdefgh12345678"},
 		{"spaced api key assignment", `api_key = "sk-1234567890abcdef"`},
 		{"spaced secret assignment", "secret = hunter2secretvalue"},
+		{"quoted secret with internal space", `password = "my secret pass phrase"`},
 	} {
-		if r.ContainsSecrets(c.in) {
-			t.Errorf("%s: unexpectedly detected (regex coverage changed?)", c.name)
-		} else {
-			t.Logf("MISS: %s not detected", c.name)
+		if !r.ContainsSecrets(c.in) {
+			t.Errorf("%s: expected detection, got none", c.name)
+			continue
+		}
+		redacted := r.RedactOutput(c.in)
+		if contains(redacted, secretValue(c.in)) {
+			t.Errorf("%s: RedactOutput left the secret value in %q", c.name, redacted)
+		}
+		if !contains(redacted, "[REDACTED]") {
+			t.Errorf("%s: RedactOutput produced no [REDACTED] marker: %q", c.name, redacted)
 		}
 	}
+}
+
+// secretValue extracts the portion of a fixture after '=' / ':' that must not
+// survive redaction. Used only to assert the secret bytes are gone.
+func secretValue(s string) string {
+	for _, sep := range []string{"=", ": "} {
+		if i := lastIndex(s, sep); i >= 0 {
+			return s[i+len(sep):]
+		}
+	}
+	return s
+}
+
+func lastIndex(s, sub string) int {
+	for i := len(s) - len(sub); i >= 0; i-- {
+		if s[i:i+len(sub)] == sub {
+			return i
+		}
+	}
+	return -1
 }
 
 func TestRedactOutputCoversEmailAndIP(t *testing.T) {

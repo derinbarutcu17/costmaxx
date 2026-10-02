@@ -1,5 +1,61 @@
 # CostMax Proof Run
 
+This file records the retained result of the authoritative live evaluation
+completed on 2026-08-05 and the exact way to audit it.
+
+## Auditability status of this checkout
+
+**The raw evidence directory `results/20260805T114713Z-authoritative/` is
+absent from this checkout.** It was not committed with the repository. Until
+the raw Codex JSONL transcripts are restored under a documented evidence
+location, or a fresh run is produced, the 2026-08-05 numbers below are
+**retained documentation, not locally verifiable evidence**:
+
+- the transcripts, `report.json`, `preflights.json`, and `manifest.json` are
+  not present here;
+- the strict verifier cannot run against them, so no locally-verified claim
+  is made from this checkout;
+- the exact blocker for that historical run is that its raw transcripts were
+  never committed; at the time of that audit, producing a replacement also
+  required Codex CLI/API credentials that were unavailable.
+
+Anyone who restores or re-produces the evidence can audit it with the strict
+command below, which now also enforces the recorded binary hash. If the
+evidence is restored, these checks are the acceptance gate; if it is not
+restored, no number from the retained run may be quoted as locally verified.
+
+## Fresh local live run (2026-09-02)
+
+A fresh run was produced from this checkout with the current binary, three
+global preflights, and 20 fixtures × 3 repetitions. The compact evidence
+bundle is retained locally at `results/20260902T-live-proof/` (ignored by Git;
+raw Codex JSONL plus `manifest.json`, `report.json`, and `report.md`; fixture
+working trees are intentionally omitted). Its binary SHA-256 is
+`279de9054a953694b46aa524fa50d7f15cf763e40343994d57ad66543a34a66e`.
+
+The independent audit passes with the bundle:
+
+```bash
+python3 scripts/verify-live-results.py results/20260902T-live-proof \
+  --expected-cases 20 --expected-repetitions 3 --forbid-rehydration \
+  --expect-binary-sha 279de9054a953694b46aa524fa50d7f15cf763e40343994d57ad66543a34a66e
+```
+
+It verifies 60/60 active answer passes, exactly 60 active `costmax_run`
+calls, zero active direct commands, zero rehydrations, and model-visible
+estimates of 36,645 → 16,326 (55.4% lower). The baseline control was 59/60;
+the one `case-005-search` miss is a recorded control-model miss, not an
+active CostMax failure. The retained report was generated just before the
+control-miss exit-semantics polish; the current runner records the same kind
+of valid baseline mismatch as a visible warning, while
+`--require-baseline` remains strict and exits 1.
+
+Because this evidence is local and ignored rather than committed, a clean
+clone must reproduce the run (or copy the bundle) before treating it as
+portable repository evidence.
+
+## Retained result (2026-08-05, not locally re-auditable here)
+
 This is the retained result of the authoritative live evaluation completed on
 2026-08-05:
 
@@ -65,6 +121,7 @@ python3 scripts/verify-live-results.py \
 | Global preflight passes | 3/3 |
 | Active rehydrations | 0 |
 | Baseline control quality passes | 59/60 |
+| Baseline control misses | 1 (reported honestly; not a run failure) |
 | Non-rehydrated token-saving cases | 44/60 |
 | Correct but no-saving cases | 15/60 |
 
@@ -73,6 +130,15 @@ model counted nine matching files instead of the fixture's ten. The active
 route passed that same case in all three repetitions. This is a control
 model-answer failure, not an active CostMax failure. The retained 2026-07-31
 run had the same single baseline miss on the same fixture.
+
+Because baseline is a control arm, the evaluator records that miss as an
+explicit control miss/warning (`baseline.control_miss` in `report.json`, a
+`Control miss` column and aggregate in `report.md`, and a console
+`WARN baseline ... control miss` line) and still exits `0` — the run's 60/60
+active quality passes and clean MCP invariants are what determine success.
+A missing baseline transcript or a baseline subprocess/command error would
+still fail the run closed; baseline answer checking is never skipped or
+weakened, only reclassified from a product failure to a control miss.
 
 The evaluator's model-visible output estimates were:
 
@@ -94,15 +160,30 @@ python3 scripts/verify-live-results.py \
   results/20260805T114713Z-authoritative \
   --expected-cases 20 \
   --expected-repetitions 3 \
-  --forbid-rehydration
+  --forbid-rehydration \
+  --expect-binary-sha 10d2253d640f7acb43d43b45ce11ee1fd3d1cacfbc51f08f1ad15513558bbc24
 ```
 
 The audit parses every raw Codex JSONL transcript. It fails if an active or
 preflight transcript is missing, has anything other than exactly one completed
 `costmax_run` from the `costmaxx` server, uses the fixture's exact command,
 contains a direct `command_execution`, or disagrees with the recorded quality
-result. It treats baseline as a control arm and therefore does not require
-every baseline answer to pass unless `--require-baseline` is provided.
+result. It also fails if the recorded `manifest.json` binary hash does not
+match `--expect-binary-sha` (or if a manifest is missing when the flag is
+given). It treats baseline as a control arm and therefore does not require
+every baseline answer to pass unless `--require-baseline` is provided;
+control misses are still printed as explicit warnings in the audit output.
+
+The evaluator's exit semantics match this posture: the run exits `0` when the
+active arm and harness invariants pass, recording any baseline answer mismatch
+on a valid baseline transcript as a control miss/warning instead of failing.
+Baseline answer checking is unchanged — a miss is reported, never hidden — and
+a missing baseline transcript or baseline subprocess/command error still fails
+the run. `verify-live-results.py --require-baseline` remains strict and fails
+on that same control miss.
+
+When run against the current checkout (evidence directory absent), this
+command reports the missing-directory failure instead of a fabricated pass.
 
 ## Reproduce
 
@@ -133,3 +214,7 @@ that Codex will choose `costmax_run` without prompting. Codex hooks remain
 observe-only; the active reduction path is the explicit `costmax_run` MCP tool.
 The current proof is Codex-only and uses deterministic fixtures rather than
 arbitrary production repositories.
+
+The controlled 20×3 fixture evaluation and any organic-adoption measurement
+are separate experiments by design: see `docs/PROOF_PLAN.md` for the
+reproduction loop and the distinction.

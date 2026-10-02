@@ -160,3 +160,74 @@ func TestFreshDBNeedsOneOpen(t *testing.T) {
 		t.Errorf("metrics mismatch: got %d/%d/%d/%d, want 100/50/2/5", rt, ct, ar, tc)
 	}
 }
+
+func TestMigrationToV6AddsCallLedgerAndNormalizesTimestamps(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "v6.db")
+
+	// Fresh database reaches v6 and the call_ledger table exists.
+	s, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var version int
+	if err := s.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != 6 {
+		t.Fatalf("fresh DB should reach v6, got v%d", version)
+	}
+	var tbl string
+	if err := s.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name='call_ledger'`).Scan(&tbl); err != nil {
+		t.Fatalf("call_ledger table missing on fresh DB: %v", err)
+	}
+	s.Close()
+
+	// Simulate an existing v5 database by removing the v5/v6 version rows and
+	// seeding a v5-style (variable-width RFC3339Nano) ledger row, then reopen:
+	// migration v6 must normalize the timestamp and remain idempotent.
+	raw, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`DELETE FROM schema_version WHERE version IN (5, 6)`); err != nil {
+		t.Fatal(err)
+	}
+	// Two rows whose RFC3339Nano forms string-compare in the wrong order:
+	// 10:00:00.5Z sorts after 10:00:00.55Z chronologically, but before it
+	// lexicographically. Both must be rewritten to the fixed-width layout.
+	if _, err := raw.Exec(`INSERT INTO call_ledger (call_id, idempotency_key, event_timestamp, session_id, harness, outcome)
+		VALUES ('c1', 'k1', '2026-09-02T10:00:00.5Z', 's1', 'mcp', 'passthrough')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`INSERT INTO call_ledger (call_id, idempotency_key, event_timestamp, session_id, harness, outcome)
+		VALUES ('c2', 'k2', '2026-09-02T10:00:00.55Z', 's1', 'mcp', 'passthrough')`); err != nil {
+		t.Fatal(err)
+	}
+	raw.Close()
+
+	s2, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+	if err := s2.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != 6 {
+		t.Fatalf("incremental migration should reach v6, got v%d", version)
+	}
+	var ts1, ts2 string
+	if err := s2.QueryRow(`SELECT event_timestamp FROM call_ledger WHERE call_id = 'c1'`).Scan(&ts1); err != nil {
+		t.Fatal(err)
+	}
+	if err := s2.QueryRow(`SELECT event_timestamp FROM call_ledger WHERE call_id = 'c2'`).Scan(&ts2); err != nil {
+		t.Fatal(err)
+	}
+	if ts1 != "2026-09-02T10:00:00.500000000Z" || ts2 != "2026-09-02T10:00:00.550000000Z" {
+		t.Fatalf("v6 migration did not normalize timestamps: %q, %q", ts1, ts2)
+	}
+	if ts1 >= ts2 {
+		t.Fatalf("normalized timestamps still sort incorrectly: %q >= %q", ts1, ts2)
+	}
+}

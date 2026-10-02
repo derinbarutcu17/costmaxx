@@ -1,16 +1,21 @@
-# CostMax (experimental active path)
+---
+name: costmax
+description: Use the opt-in CostMax MCP tool for verbose local commands while keeping the full output retrievable.
+---
+
+# CostMax (opt-in MCP path)
 
 CostMax provides a `costmax_run` MCP tool that executes local shell commands,
 stores raw output as compressed evidence, and returns a compact summary
 to reduce model-visible token usage. The full output is retrievable via the
 `cmx://artifact/{id}` resource URI using MCP `resources/read`.
 
-**When to use costmax_run:**
+**When to use `costmax_run`:**
 - The command may produce verbose output (>1000 chars)
 - You need the result but not every line of output
 - You want raw evidence preserved for later retrieval
 
-**When NOT to use costmax_run:**
+**When NOT to use `costmax_run`:**
 - The command is interactive or requires stdin
 - You need the exact full output visible immediately
 
@@ -22,3 +27,5 @@ to reduce model-visible token usage. The full output is retrievable via the
   storage — retrieved evidence may differ from original output
 - The compact summary may omit details; use `resources/read` with the
   artifact URI `cmx://artifact/{id}` to retrieve the full output
+- CostMax is opt-in: Codex lifecycle hooks observe and record, but never
+  replace normal tool output. Do not claim automatic or billed-dollar savings.

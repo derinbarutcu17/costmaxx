@@ -41,5 +41,9 @@ type Adapter interface {
 |---------|---------|--------|
 | Codex CLI | `internal/adapters/codex/` | Observe mode only |
 
-Hermes and Claude Code adapters were deleted; Codex is the only adapter.
-opencode is supported via the MCP server and plugin (`costmaxx install --target opencode`), not an adapter.
+Codex is the only bespoke adapter. opencode and Hermes are MCP client support,
+not adapters: they register the stdio MCP server via
+`costmaxx install --target opencode|hermes` and expose the tool as
+`costmaxx_costmax_run` (Hermes typically exposes it as
+`mcp__costmaxx__costmax_run`). MCP use is opt-in; opencode and Hermes have no Codex-style
+lifecycle hooks. No auto-compression plugin ships in this repository.

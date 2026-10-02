@@ -31,10 +31,16 @@ Record reduction metrics → Return hook response (observe-only)
 ## MCP Active Path (opt-in)
 
 ```
-Codex calls costmax_run → execute local command → store raw artifact →
+Any MCP client (Codex, opencode, Hermes, Gemini, custom) calls costmax_run →
+execute local command → store raw artifact →
 classify/reduce or apply safe recommendation → return model-visible result →
 resources/read retrieves the original artifact when needed
 ```
+
+MCP use is opt-in: a client only compresses when the model calls `costmax_run`
+(Codex: `costmax_run`; opencode: `costmaxx_costmax_run`; Hermes:
+`mcp__costmaxx__costmax_run` / `costmaxx:costmax_run`). Codex hooks
+remain observe-only and never replace tool output.
 
 ## Evidence Retrieval Flow
 
@@ -45,7 +51,10 @@ artifact_id → SQLite metadata lookup → content_digest → SHA-256 addressed 
 ## Storage
 
 - Content-addressed files for raw evidence (SHA-256, zstd-compressed)
-- SQLite for metadata, events, task state, artifact metadata, reduction records, session metrics
+- SQLite for metadata, events, task state, artifact metadata, reduction
+  records, session metrics, and the immutable per-call ledger (`call_ledger`).
+  The ledger is the source of truth for savings/report windows;
+  `session_metrics` is a compatibility view only.
 - Default: `~/.costmax/` with user-only permissions
 
 ## Status
@@ -54,5 +63,9 @@ artifact_id → SQLite metadata lookup → content_digest → SHA-256 addressed 
 - **session state restored at SessionStart resume**, not at PostCompact (Codex limitation)
 - **MCP active path**: working and transcript-verified; it is opt-in and does
   not replace Codex's built-in Bash output
-- **Adapters**: Codex is the only adapter; Claude/Hermes adapters were removed.
-  opencode is supported via the MCP server and plugin, not an adapter.
+- **Adapters**: Codex is the only bespoke adapter; Claude/Hermes adapters were
+  removed. opencode and Hermes are MCP client support
+  (`costmaxx install --target opencode|hermes`, tool exposed as
+  `costmaxx_costmax_run` for opencode or `mcp__costmaxx__costmax_run` for
+  Hermes), not adapters. MCP use is opt-in and no
+  auto-compression plugin ships in this repository.

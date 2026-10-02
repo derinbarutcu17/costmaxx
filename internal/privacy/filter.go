@@ -6,12 +6,15 @@ import (
 )
 
 var (
-	apiKeyRE   = regexp.MustCompile(`(?i)(api[_-]?key|apikey|secret|token|password|credential)[:=]\s*['"]?\S{8,}['"]?`)
-	ssnRE      = regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`)
-	emailRE    = regexp.MustCompile(`\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b`)
-	urlWithKey = regexp.MustCompile(`https?://[^:]+:[^@]+@`)
-	ipRE       = regexp.MustCompile(`\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b`)
-	jwtRE      = regexp.MustCompile(`eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+`)
+	apiKeyRE      = regexp.MustCompile(`(?i)(api[_-]?key|apikey|secret|token|password|credential|authorization)\s*[:=]\s*(?:"[^"]+"|'[^']+'|\S{8,})`)
+	awsAccessIDRE = regexp.MustCompile(`(?i)aws_access_key_id\s*[:=]\s*(?:"[^"]+"|'[^']+'|AKIA[0-9A-Z]{16})`)
+	awsSecretRE   = regexp.MustCompile(`(?i)aws_secret_access_key\s*[:=]\s*(?:"[^"]+"|'[^']+'|\S{8,})`)
+	bearerRE      = regexp.MustCompile(`(?i)authorization\s*[:=]\s*(?:bearer\s+\S+|"[^"]+"|'[^']+')`)
+	ssnRE         = regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`)
+	emailRE       = regexp.MustCompile(`\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b`)
+	urlWithKey    = regexp.MustCompile(`https?://[^:]+:[^@]+@`)
+	ipRE          = regexp.MustCompile(`\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b`)
+	jwtRE         = regexp.MustCompile(`eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+`)
 )
 
 type Redactor struct {
@@ -22,7 +25,7 @@ type Redactor struct {
 
 func NewRedactor() *Redactor {
 	return &Redactor{
-		patterns: []*regexp.Regexp{apiKeyRE, ssnRE, jwtRE, urlWithKey},
+		patterns: []*regexp.Regexp{apiKeyRE, awsAccessIDRE, awsSecretRE, bearerRE, ssnRE, jwtRE, urlWithKey},
 		replace:  "[REDACTED]",
 	}
 }

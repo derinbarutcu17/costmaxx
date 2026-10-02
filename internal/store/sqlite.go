@@ -14,7 +14,7 @@ import (
 	"github.com/derinbarutcu17/costmaxx/internal/state"
 )
 
-const schemaVersion int = 4
+const schemaVersion int = 6
 
 type DB struct {
 	db *sql.DB
@@ -125,6 +125,15 @@ func (s *DB) applyMigration(v int) error {
 				return fmt.Errorf("migration v%d: %w", v, err)
 			}
 		}
+	} else if v == 6 {
+		// Normalize call_ledger timestamps to the fixed-width UTC layout so
+		// lexicographic ordering is chronologically monotonic. RFC3339Nano
+		// trims trailing zeros, which inverts sub-second order (".5Z" sorts
+		// after ".55Z") and silently mis-slices `--since` windows. Rows are
+		// immutable, so this is a one-time rewrite of the v5 rows only.
+		if err := s.normalizeLedgerTimestamps(); err != nil {
+			return fmt.Errorf("migration v%d: %w", v, err)
+		}
 	} else {
 		if _, err := s.db.Exec(migrationFor(v)); err != nil {
 			return fmt.Errorf("migration v%d: %w", v, err)
@@ -136,6 +145,48 @@ func (s *DB) applyMigration(v int) error {
 		v, time.Now().Format(time.RFC3339),
 	); err != nil {
 		return fmt.Errorf("record v%d: %w", v, err)
+	}
+	return nil
+}
+
+// normalizeLedgerTimestamps rewrites call_ledger rows written by schema v5
+// (variable-width RFC3339Nano) into the fixed-width UTC ledger layout so
+// string ordering stays chronologically monotonic. Unparseable values are
+// left untouched rather than bricking the store.
+func (s *DB) normalizeLedgerTimestamps() error {
+	rows, err := s.db.Query(`SELECT call_id, event_timestamp FROM call_ledger`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	type tsRow struct {
+		id string
+		ts string
+	}
+	var fix []tsRow
+	for rows.Next() {
+		var r tsRow
+		if err := rows.Scan(&r.id, &r.ts); err != nil {
+			return err
+		}
+		if !isNormalizedLedgerTime(r.ts) {
+			fix = append(fix, r)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, r := range fix {
+		t, err := time.Parse(time.RFC3339Nano, r.ts)
+		if err != nil {
+			continue
+		}
+		if _, err := s.db.Exec(
+			`UPDATE call_ledger SET event_timestamp = ? WHERE call_id = ?`,
+			formatLedgerTime(t), r.id,
+		); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -296,6 +347,24 @@ func (s *DB) DeleteArtifact(artifactID string) error {
 	return err
 }
 
+// PurgeOrphanArtifact removes the on-disk file for a content digest when no
+// artifact metadata row references it. It is the post-hoc safety net for the
+// window between writing a content-addressed file and a duplicate call being
+// detected: when RecordCall reports a duplicate, a freshly written file may
+// have no referencing row yet, and it must not be left behind. The file is
+// only removed when the digest is genuinely unreferenced, so a concurrent
+// process that committed a row for the same bytes is never corrupted.
+func (s *DB) PurgeOrphanArtifact(st *artifacts.Store, digest string) error {
+	ref, err := s.GetArtifactByDigest(digest)
+	if err != nil {
+		return fmt.Errorf("check artifact reference: %w", err)
+	}
+	if ref != nil {
+		return nil
+	}
+	return st.RemoveDigest(digest)
+}
+
 // ArtifactCount reports how many artifact rows remain (test/inspection aid).
 func (s *DB) ArtifactCount() (int, error) {
 	var n int
@@ -334,6 +403,38 @@ func (s *DB) ReductionCount() (int, error) {
 	var count int
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM reduction_records`).Scan(&count)
 	return count, err
+}
+
+// GetReduction returns a stored reduction record by its reduction ID, or nil
+// when no such record exists. Used to re-render a stored envelope for an
+// idempotency retry without re-running the reducer.
+func (s *DB) GetReduction(reductionID string) (*artifacts.ReductionRecord, error) {
+	var r artifacts.ReductionRecord
+	var sf, pa, olr, created string
+	var replacementApplied int
+	err := s.db.QueryRow(
+		`SELECT reduction_id, artifact_id, reducer_name, reducer_version,
+		 compact_content, structured_facts, preserved_anchors,
+		 omitted_line_ranges, original_bytes, compact_bytes,
+		 original_token_est, compact_token_est, replacement_applied, reason,
+		 created_at
+		FROM reduction_records WHERE reduction_id = ?`, reductionID,
+	).Scan(&r.ReductionID, &r.ArtifactID, &r.ReducerName, &r.ReducerVersion,
+		&r.CompactContent, &sf, &pa, &olr,
+		&r.OriginalBytes, &r.CompactBytes, &r.OriginalTokenEst, &r.CompactTokenEst,
+		&replacementApplied, &r.Reason, &created)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	r.ReplacementApplied = replacementApplied != 0
+	json.Unmarshal([]byte(sf), &r.StructuredFacts)
+	json.Unmarshal([]byte(pa), &r.PreservedAnchors)
+	json.Unmarshal([]byte(olr), &r.OmittedLineRanges)
+	r.CreatedAt = parseArtifactTime(created)
+	return &r, nil
 }
 
 func (s *DB) InsertSessionMetrics(sessionID string, rawTokens, compactTokens, artifactsReduced, toolCalls int) error {
@@ -513,6 +614,47 @@ func migrationFor(v int) string {
 		// original execution so `costmaxx replay <id>` can re-run in place.
 		return `
 			ALTER TABLE artifacts ADD COLUMN cwd TEXT DEFAULT '';
+		`
+	case 5:
+		// Immutable per-call ledger: one row per accepted command/tool call,
+		// written atomically with the artifact/reduction metadata and guarded
+		// against double counting by an idempotency key. session_metrics is
+		// retained only as a compatibility read model; all time-window
+		// reporting derives from this table.
+		return `
+			CREATE TABLE IF NOT EXISTS call_ledger (
+				call_id TEXT PRIMARY KEY,
+				idempotency_key TEXT NOT NULL UNIQUE,
+				event_timestamp TEXT NOT NULL,
+				session_id TEXT NOT NULL,
+				harness TEXT NOT NULL,
+				command TEXT,
+				cwd TEXT,
+				category TEXT,
+				reducer_name TEXT,
+				reducer_version TEXT,
+				raw_bytes INTEGER NOT NULL DEFAULT 0,
+				model_visible_bytes INTEGER NOT NULL DEFAULT 0,
+				raw_token_est INTEGER NOT NULL DEFAULT 0,
+				model_visible_token_est INTEGER NOT NULL DEFAULT 0,
+				recommendation TEXT,
+				final_decision TEXT,
+				reduction_attempted INTEGER NOT NULL DEFAULT 0,
+				reduction_applied INTEGER NOT NULL DEFAULT 0,
+				artifact_id TEXT,
+				reduction_id TEXT,
+				exit_code INTEGER NOT NULL DEFAULT 0,
+				rehydrated INTEGER NOT NULL DEFAULT 0,
+				hook_status TEXT,
+				error_status TEXT,
+				outcome TEXT NOT NULL
+			);
+			CREATE INDEX IF NOT EXISTS idx_ledger_timestamp ON call_ledger(event_timestamp);
+			CREATE INDEX IF NOT EXISTS idx_ledger_harness ON call_ledger(harness);
+			CREATE INDEX IF NOT EXISTS idx_ledger_session ON call_ledger(session_id);
+			CREATE INDEX IF NOT EXISTS idx_ledger_category ON call_ledger(category);
+			CREATE INDEX IF NOT EXISTS idx_ledger_decision ON call_ledger(final_decision);
+			CREATE INDEX IF NOT EXISTS idx_ledger_artifact ON call_ledger(artifact_id);
 		`
 	default:
 		return ""

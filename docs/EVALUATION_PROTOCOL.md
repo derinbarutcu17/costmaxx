@@ -93,6 +93,7 @@ Each fixture is a JSON file with:
 | Costmax_run calls | Count of `costmax_run` MCP tool invocations |
 | Direct Bash calls | Count of all Codex `command_execution` events in the active arm |
 | Answer match | Whether the final model answer matches all `expected_answer` regexes |
+| Baseline control miss | `baseline.control_miss`: baseline transcript valid but the baseline answer missed a regex (a warning, not a run failure) |
 | Outcome | `quality_and_saving`, `quality_no_saving`, `quality_failure`, `quality_with_rehydration`, or `harness_failure` |
 
 ## Pass/fail rules
@@ -107,8 +108,29 @@ A case fails when:
 - No tool call matches the expected command (model took a different approach)
 - Active mode calls `costmax_run` zero times or more than once
 - Active mode executes any direct command
-- Answer regexes do not match
+- The active answer does not match the regexes
+- The baseline transcript is missing, or the baseline command/subprocess
+  errored (runner or model violated the control arm itself)
 - The runner itself errors (infrastructure failure, reported separately)
+
+### Exit semantics
+
+The run exits `0` (and prints `OVERALL: PASS`) only when every active arm
+passes and the harness invariants hold. It exits `1` (`OVERALL: FAIL`) on any
+active error, active answer mismatch, MCP bypass (missing/duplicate
+`costmax_run` or a direct Bash call), missing baseline transcript, or baseline
+subprocess/command error — plus any rehydration-policy violation enforced by
+`verify-live-results.py --forbid-rehydration`.
+
+A baseline answer mismatch on an **otherwise valid** baseline transcript is a
+**control miss**, not a product failure. Baseline is the no-CostMax control
+arm; a model noise in its answer is recorded honestly and does not fail the
+run. It is surfaced everywhere: `report.json` sets `baseline.control_miss`
+and leaves `baseline.error` null, `report.md` shows a `Control miss` column,
+a `Baseline control misses` aggregate row and a detail section, and the
+console prints a `WARN baseline <case> run <n>: control miss` line. The audit
+reports it the same way and only fails on it when `--require-baseline` is
+passed (the strict stance).
 
 ## Rehydration reporting
 

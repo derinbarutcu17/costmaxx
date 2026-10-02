@@ -2,12 +2,15 @@ package integration
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	_ "modernc.org/sqlite"
 )
 
 type hookOutput struct {
@@ -174,4 +177,35 @@ func TestHookStateCommandShowsResumedState(t *testing.T) {
 		t.Errorf("state output missing NextAction:\n%s", out)
 	}
 	fmt.Println(string(out))
+}
+
+// A malformed hook payload must fail open (continue, exit 0) and be counted
+// as a fail-open event in the immutable ledger rather than crashing the hook
+// or silently disappearing.
+func TestHookMalformedPayloadFailsOpenAndRecordsLedgerError(t *testing.T) {
+	home := newIsolatedHome(t)
+
+	out, exit := runHookCLI(t, home, "this is not json")
+	if exit != 0 {
+		t.Fatalf("malformed payload must not crash the hook, exit=%d", exit)
+	}
+	if !out.Continue {
+		t.Error("malformed payload must fail open (continue=true)")
+	}
+
+	db, err := sql.Open("sqlite", filepath.Join(home, ".costmax", "costmax.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var harness, outcome, hookStatus string
+	err = db.QueryRow(
+		`SELECT harness, outcome, hook_status FROM call_ledger WHERE outcome = 'error' LIMIT 1`,
+	).Scan(&harness, &outcome, &hookStatus)
+	if err != nil {
+		t.Fatalf("no fail-open ledger row recorded: %v", err)
+	}
+	if harness != "codex_hook" || hookStatus != "fail_open" {
+		t.Errorf("fail-open row wrong: harness=%q status=%q", harness, hookStatus)
+	}
 }

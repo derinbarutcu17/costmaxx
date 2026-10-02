@@ -97,6 +97,17 @@ def evidence_path(root, path_text):
     return path, None
 
 
+def is_control_miss(record):
+    """A baseline control miss is an answer mismatch on an otherwise valid
+    baseline transcript (new reports mark it explicitly; older reports with a
+    clean transcript also qualify). It is reported as a warning, never as a
+    pass, and only fails the audit when --require-baseline is given."""
+    baseline = record.get("baseline", {})
+    return bool(baseline.get("control_miss")) or (
+        not baseline.get("all_match") and not baseline.get("error")
+    )
+
+
 def audit_preflight_only(root, expected):
     path = root / "preflights.json"
     if not path.is_file():
@@ -168,6 +179,11 @@ def main():
         type=int,
         default=0,
         help="expected count for --preflight-only",
+    )
+    parser.add_argument(
+        "--expect-binary-sha",
+        default="",
+        help="require manifest.json costmax_binary_sha256 to equal this value",
     )
     args = parser.parse_args()
     root = args.results_dir.resolve()
@@ -268,6 +284,27 @@ def main():
                 f"expected {args.expected_repetitions} complete repetitions, found {dict(runs)}"
             )
 
+    # Binary hash integrity: the evidence is only as trustworthy as the binary
+    # that produced it. When a manifest exists, it must record the hash; when
+    # --expect-binary-sha is given, it must match exactly.
+    manifest_path = root / "manifest.json"
+    recorded_sha = None
+    if manifest_path.is_file():
+        try:
+            manifest = json.loads(manifest_path.read_text())
+        except json.JSONDecodeError as exc:
+            failures.append(f"invalid manifest.json: {exc}")
+        else:
+            recorded_sha = manifest.get("costmax_binary_sha256")
+            if not recorded_sha:
+                failures.append("manifest.json is missing costmax_binary_sha256")
+    elif args.expect_binary_sha:
+        failures.append(f"missing {manifest_path} (cannot check binary hash)")
+    if args.expect_binary_sha and recorded_sha and recorded_sha != args.expect_binary_sha:
+        failures.append(
+            f"binary hash mismatch: manifest={recorded_sha}, expected={args.expect_binary_sha}"
+        )
+
     global_preflights = root / "preflights.json"
     if global_preflights.is_file():
         try:
@@ -309,6 +346,16 @@ def main():
     print(f"Active/preflight direct command calls: {transcript_totals['active_commands']}/{transcript_totals['preflight_commands']}")
     print(f"Rehydrated active cases: {rehydrated}")
     print(f"Model-visible token estimates: {baseline_tokens} -> {active_tokens} ({reduction:.1f}% lower)")
+    if recorded_sha:
+        print(f"Binary SHA-256: {recorded_sha}")
+    control_misses = [item for item in report if is_control_miss(item)]
+    if control_misses:
+        print(f"Baseline control misses (valid transcript, answer mismatch): {len(control_misses)}")
+        for item in control_misses:
+            print(
+                f"  - {item.get('case_id', '?')} run {item.get('run', '?')}: "
+                "baseline answer did not match (use --require-baseline to fail on control misses)"
+            )
     if failures:
         print(f"FAIL: {len(failures)} invariant(s) violated")
         for failure in failures:

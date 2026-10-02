@@ -2,6 +2,7 @@ package codex
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/derinbarutcu17/costmaxx/internal/adapters/protocol"
 	"github.com/derinbarutcu17/costmaxx/internal/artifacts"
@@ -11,6 +12,7 @@ import (
 	"github.com/derinbarutcu17/costmaxx/internal/privacy"
 	"github.com/derinbarutcu17/costmaxx/internal/reducers"
 	"github.com/derinbarutcu17/costmaxx/internal/state"
+	"github.com/derinbarutcu17/costmaxx/internal/store"
 )
 
 type Adapter struct {
@@ -23,7 +25,12 @@ type Adapter struct {
 	metrics    *metrics.Engine
 	redactor   *privacy.Redactor
 	taskState  *state.TaskState
-	sessionID  string
+	// taskSessionID is the session the in-memory taskState belongs to. A
+	// long-lived adapter can serve several sessions; an event for a different
+	// session must never reuse another session's in-memory state (objective,
+	// repository, unresolved issues) — it is reloaded from the DB instead.
+	taskSessionID string
+	sessionID     string
 }
 
 type DB interface {
@@ -31,11 +38,42 @@ type DB interface {
 	GetSessionEvents(string) ([]events.HarnessEvent, error)
 	SaveTaskState(string, *state.TaskState) error
 	LoadTaskState(string) (*state.TaskState, error)
-	InsertArtifact(*artifacts.EvidenceArtifact) error
 	GetArtifact(string) (*artifacts.EvidenceArtifact, error)
-	InsertReduction(*artifacts.ReductionRecord) error
 	InsertSessionMetrics(string, int, int, int, int) error
+	InsertLedger(*store.LedgerEntry) (bool, error)
+	// RecordCall persists an artifact, its optional reduction record, and the
+	// ledger row in one transaction (idempotency-keyed), so a hook can never
+	// leave partial metadata behind or double-count a duplicate PostToolUse.
+	// It is the ONLY persistence path for hook evidence; the store's standalone
+	// InsertArtifact/InsertReduction are not exposed through the adapter.
+	RecordCall(*artifacts.EvidenceArtifact, *artifacts.ReductionRecord, *store.LedgerEntry) (bool, error)
+	// GetLedgerByIdempotencyKey pre-checks a duplicate PostToolUse before a
+	// second artifact file is written.
+	GetLedgerByIdempotencyKey(string) (*store.LedgerEntry, error)
+	// Read-only inspection methods used by the hook regression tests and the
+	// doctor/report tooling.
+	LedgerRows(time.Time, time.Time) ([]store.LedgerEntry, error)
+	ArtifactCount() (int, error)
+	ReductionCount() (int, error)
+	GetSessionMetrics(string) (int, int, int, int, error)
 	Close() error
+}
+
+// Test/inspection wrappers: expose the concrete store's read paths through
+// the adapter so integration tests can assert exactly one row per logical
+// hook call and inspect what the ledger actually persisted.
+func (a *Adapter) CountLedgerRows() (int, error) {
+	rows, err := a.db.LedgerRows(time.Time{}, time.Time{})
+	return len(rows), err
+}
+
+func (a *Adapter) CountArtifacts() (int, error)  { return a.db.ArtifactCount() }
+func (a *Adapter) CountReductions() (int, error) { return a.db.ReductionCount() }
+func (a *Adapter) SessionMetrics(sessionID string) (int, int, int, int, error) {
+	return a.db.GetSessionMetrics(sessionID)
+}
+func (a *Adapter) LedgerRows() ([]store.LedgerEntry, error) {
+	return a.db.LedgerRows(time.Time{}, time.Time{})
 }
 
 func New(cfg *config.Config, artStore *artifacts.Store, db DB) *Adapter {

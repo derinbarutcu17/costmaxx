@@ -5,6 +5,14 @@ Usage:
   python3 scripts/run-codex-eval.py --self-test       # parser/fixture validation (default)
   python3 scripts/run-codex-eval.py --live --binary /path/to/costmaxx  # real Codex calls
   python3 scripts/run-codex-eval.py --live --case case-001 --binary /path/to/costmaxx
+
+Exit semantics: the run exits 0 only when every active arm and the harness
+invariants pass. A baseline answer mismatch on a valid baseline transcript is
+recorded as an explicit control miss/warning (report.json baseline.control_miss,
+report.md Control-miss column + aggregate, console WARN) and does not fail the
+run. Missing baseline transcripts, baseline subprocess/command errors, active
+errors/answer mismatches, MCP bypasses, and rehydration policy violations stay
+fail-closed.
 """
 
 import argparse, glob, hashlib, json, os, re, shutil, signal, subprocess, sys, tempfile
@@ -123,6 +131,25 @@ def verify_mcp_setup(costmax_binary, wrapper):
     return True, "ok"
 
 
+def check_toolchain():
+    """Verify external commands before any evidence directory is created.
+
+    Returns (error, info); error is None when ready. The evaluator depends on
+    the Codex CLI and git, so a missing tool aborts with a concise actionable
+    message instead of a traceback and an empty results directory.
+    """
+    for cmd in ("codex", "git"):
+        if not shutil.which(cmd):
+            return f"{cmd} CLI not found on PATH; install it and retry", None
+    info = {}
+    try:
+        info["codex_version"] = subprocess.check_output(["codex", "--version"], text=True).strip()
+        info["git_version"] = subprocess.check_output(["git", "--version"], text=True).strip()
+    except Exception as e:
+        return f"toolchain probe failed: {e}", None
+    return None, info
+
+
 # ---------------------------------------------------------------------------
 # Codex execution
 # ---------------------------------------------------------------------------
@@ -143,21 +170,24 @@ def run_codex(repo, prompt, jsonl_path, mcp_wrapper=None, timeout=300):
         ]
     # Codex may leave helper processes holding stderr open. Run it in its own
     # process group so a timeout cannot strand the evaluator in communicate().
-    with open(jsonl_path, "w") as out:
-        process = subprocess.Popen(
-            cmd,
-            env=os.environ.copy(),
-            stdout=out,
-            stderr=subprocess.PIPE,
-            text=True,
-            start_new_session=True,
-        )
-        try:
-            stderr = process.communicate(timeout=timeout)[1]
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            stderr = process.communicate()[1]
-            return -1, f"timeout after {timeout}s\n{stderr}"
+    try:
+        with open(jsonl_path, "w") as out:
+            process = subprocess.Popen(
+                cmd,
+                env=os.environ.copy(),
+                stdout=out,
+                stderr=subprocess.PIPE,
+                text=True,
+                start_new_session=True,
+            )
+            try:
+                stderr = process.communicate(timeout=timeout)[1]
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                stderr = process.communicate()[1]
+                return -1, f"timeout after {timeout}s\n{stderr}"
+    except FileNotFoundError:
+        return -1, "codex CLI not found on PATH; install it and retry"
     return process.returncode, stderr
 
 
@@ -304,13 +334,13 @@ def run_preflight(repo, wrapper, jsonl_path):
     result = {"ok": False, "costmax_calls": 0, "bash_calls": 0, "error": None}
     try:
         # A transient Codex subprocess stall must not turn an otherwise valid
-        # MCP setup into a false product failure. Retry only timeouts; all
-        # protocol/model violations remain fail-closed.
+        # MCP setup into a false product failure. Retry only timeouts (codex
+        # exec reports them as rc=-1 with a "timeout after" stderr marker);
+        # all protocol/model violations remain fail-closed.
         for attempt in range(1, 3):
             attempt_path = jsonl_path if attempt == 1 else jsonl_path + f".attempt{attempt}"
-            try:
-                rc, err = run_codex(repo, prompt, attempt_path, wrapper, timeout=180)
-            except subprocess.TimeoutExpired:
+            rc, err = run_codex(repo, prompt, attempt_path, wrapper, timeout=180)
+            if rc == -1 and err.startswith("timeout after"):
                 result["error"] = f"preflight timed out after 180s (attempt {attempt})"
                 if attempt == 1:
                     continue
@@ -343,6 +373,52 @@ def run_preflight(repo, wrapper, jsonl_path):
 # Evaluation runner
 # ---------------------------------------------------------------------------
 
+def classify_case_report(report):
+    """Pure classifier over one paired-case report (no live Codex needed).
+
+    Sets ``baseline.control_miss`` and the final ``outcome``. Fail-closed
+    conditions stay hard failures: missing baseline/active output, baseline
+    subprocess/command errors, active errors, active answer mismatches, and
+    MCP bypasses (missing/duplicate ``costmax_run`` or a direct Bash call).
+    A baseline answer mismatch on a valid baseline transcript is a control
+    miss/warning: it is recorded on the report and does not, by itself, fail
+    the run.
+    """
+    fail = bool(report["baseline"]["error"]) or bool(report["active"]["error"])
+    if not report["baseline"]["output_text"]:
+        report["baseline"]["error"] = (report["baseline"]["error"] or "") + " [FAIL] no baseline output"
+        fail = True
+    if not report["active"]["output_text"]:
+        report["active"]["error"] = (report["active"]["error"] or "") + " [FAIL] no active output"
+        fail = True
+    if report["active"]["costmax_calls"] != 1:
+        report["active"]["error"] = (report["active"]["error"] or "") + " [FAIL] expected exactly one costmax_run"
+        fail = True
+    if report["active"]["bash_calls"] > 0:
+        report["active"]["error"] = (report["active"]["error"] or "") + " [FAIL] active used Bash"
+        fail = True
+    report["baseline"]["control_miss"] = False
+    if not report["baseline"]["all_match"]:
+        if report["baseline"]["error"]:
+            fail = True
+        else:
+            report["baseline"]["control_miss"] = True
+    if not report["active"]["all_match"]:
+        report["active"]["error"] = (report["active"]["error"] or "") + " [FAIL] answer mismatch"
+        fail = True
+
+    if fail:
+        report["saving"] = "error"
+        report["outcome"] = "quality_failure" if not report["active"]["all_match"] else "harness_failure"
+    elif report["saving"] == "yes":
+        report["outcome"] = "quality_and_saving"
+    elif report["saving"] == "partial":
+        report["outcome"] = "quality_with_rehydration"
+    else:
+        report["outcome"] = "quality_no_saving"
+    return report
+
+
 def evaluate_case(case, results_dir, costmax_binary, live=False):
     case_dir = os.path.join(results_dir, case["id"])
     os.makedirs(case_dir, exist_ok=True)
@@ -352,7 +428,8 @@ def evaluate_case(case, results_dir, costmax_binary, live=False):
         "expected_exit_code": case["expected_exit_code"],
         "transcripts": {},
         "preflight": None,
-        "baseline": {"output_text": "", "chars": 0, "tokens": 0, "answer": "", "answer_matches": [], "all_match": False, "error": None},
+        "baseline": {"output_text": "", "chars": 0, "tokens": 0, "answer": "", "answer_matches": [], "all_match": False,
+                     "control_miss": False, "error": None},
         "active": {"output_text": "", "chars": 0, "tokens": 0, "answer": "", "answer_matches": [], "all_match": False,
                     "costmax_calls": 0, "resource_calls": 0, "bash_calls": 0, "rehydrated": False, "error": None},
         "saving": "no",
@@ -452,37 +529,126 @@ def evaluate_case(case, results_dir, costmax_binary, live=False):
     elif bt > 0 and ct > 0:
         report["saving"] = "none"
 
-    # Fail closed
-    fail = False
-    if not report["baseline"]["output_text"]:
-        report["baseline"]["error"] = (report["baseline"]["error"] or "") + " [FAIL] no baseline output"
-        fail = True
-    if not report["active"]["output_text"]:
-        report["active"]["error"] = (report["active"]["error"] or "") + " [FAIL] no active output"
-        fail = True
-    if report["active"]["costmax_calls"] != 1:
-        report["active"]["error"] = (report["active"]["error"] or "") + " [FAIL] expected exactly one costmax_run"
-        fail = True
-    if report["active"]["bash_calls"] > 0:
-        report["active"]["error"] = (report["active"]["error"] or "") + " [FAIL] active used Bash"
-        fail = True
-    if not report["baseline"]["all_match"]:
-        report["baseline"]["error"] = (report["baseline"]["error"] or "") + " [FAIL] answer mismatch"
-        fail = True
-    if not report["active"]["all_match"]:
-        report["active"]["error"] = (report["active"]["error"] or "") + " [FAIL] answer mismatch"
-        fail = True
-    if fail:
-        report["saving"] = "error"
-        report["outcome"] = "quality_failure" if (not report["baseline"]["all_match"] or not report["active"]["all_match"]) else "harness_failure"
-    elif report["saving"] == "yes":
-        report["outcome"] = "quality_and_saving"
-    elif report["saving"] == "partial":
-        report["outcome"] = "quality_with_rehydration"
-    else:
-        report["outcome"] = "quality_no_saving"
-
+    # Fail closed on hard failures; a baseline answer miss on a valid baseline
+    # transcript is a control miss/warning, not a run failure.
+    classify_case_report(report)
     return report
+
+
+# ---------------------------------------------------------------------------
+# Organic adoption (separate experiment from the forced fixture evaluation)
+# ---------------------------------------------------------------------------
+
+def classify_adoption(evts, expected_answer):
+    """Classify a transcript into adoption outcomes. Pure function over parsed
+    events so the self-test can exercise it without a live Codex run."""
+    routed = count_tool_calls(evts, "costmax_run")
+    direct = count_bash_calls(evts)
+    resource_reads = count_tool_calls(evts, "read_mcp_resource")
+    result = find_mcp_tool_result(evts, "costmax_run") or ""
+    ans = extract_model_answer(evts)
+    return {
+        "routed": routed > 0,
+        "bypassed": routed == 0 and direct > 0,
+        "direct_command_calls": direct,
+        "rehydrated": resource_reads > 0,
+        "reduction_applied": (
+            "Recommendation: reduce" in result or "Recommendation: artifact_required" in result
+        ),
+        "quality_pass": all(m for _, m in check_answer(ans, expected_answer)),
+        "used_nothing": routed == 0 and direct == 0,
+    }
+
+
+def evaluate_adoption(case, case_dir, costmax_binary):
+    """Run one fixture WITHOUT forcing a tool choice.
+
+    The model may freely pick `costmax_run` or a direct command; the record
+    captures what it naturally did. This is the organic-adoption arm, kept
+    separate from the bounded 20x3 reduction/quality test.
+    """
+    cmd = case["expected_command"]
+    repo = create_project_repo(case, case_dir, "adopt")
+    costmax_home = os.path.join(case_dir, "costmax-home")
+    os.makedirs(costmax_home, exist_ok=True)
+    wrapper = install_mcp_config(repo, costmax_binary, costmax_home)
+    ok, reason = verify_mcp_setup(costmax_binary, wrapper)
+    record = {
+        "case_id": case["id"],
+        "eligible": True,
+        "routed": False,          # model chose costmax_run at least once
+        "bypassed": False,        # model chose a direct command instead
+        "direct_command_calls": 0,
+        "reduction_applied": False,
+        "rehydrated": False,
+        "quality_pass": False,
+        "error": None,
+        "transcript": os.path.join(case_dir, "adoption.jsonl"),
+    }
+    if not ok:
+        record["error"] = f"MCP setup failed: {reason}"
+        return record
+
+    # Neutral prompt: no mention of costmax_run, no forced routing.
+    prompt = f"{case['prompt']}\n\nRun the command you need and answer the question."
+    try:
+        rc, err = run_codex(repo, prompt, record["transcript"], wrapper)
+    except Exception as e:
+        record["error"] = str(e)
+        return record
+
+    evts = parse_jsonl(record["transcript"])
+    c = classify_adoption(evts, case["expected_answer"])
+    record["routed"] = c["routed"]
+    record["bypassed"] = c["bypassed"]
+    record["direct_command_calls"] = c["direct_command_calls"]
+    record["rehydrated"] = c["rehydrated"]
+    record["reduction_applied"] = c["reduction_applied"]
+    record["quality_pass"] = c["quality_pass"]
+    if rc != 0:
+        record["error"] = (record["error"] or "") + f" codex exit={rc}"
+    if c["used_nothing"]:
+        record["error"] = (record["error"] or "") + " model used neither costmax_run nor a direct command"
+    return record
+
+
+def write_adoption_report(records):
+    """Render the adoption summary: eligible / routed / bypassed / applied /
+    rehydrated / quality / failures. No billed-dollar or intelligence claim."""
+    n = len(records)
+    routed = sum(1 for r in records if r["routed"])
+    bypassed = sum(1 for r in records if r["bypassed"])
+    applied = sum(1 for r in records if r["reduction_applied"])
+    rehydrated = sum(1 for r in records if r["rehydrated"])
+    quality = sum(1 for r in records if r["quality_pass"])
+    failures = sum(1 for r in records if r["error"])
+    lines = [
+        "# CostMax Organic-Adoption Report",
+        "",
+        "Separate experiment: models were NOT told to use costmax_run.",
+        "",
+        f"- Eligible calls:       {n}",
+        f"- CostMax-routed calls: {routed}",
+        f"- Direct/bypassed:      {bypassed}",
+        f"- Reduction applied:    {applied}",
+        f"- Rehydrated calls:     {rehydrated}",
+        f"- Quality passes:       {quality}/{n}",
+        f"- Failures:             {failures}",
+        "",
+        "| Case | Routed | Bypassed | Reduction applied | Rehydrated | Quality | Error |",
+        "|------|--------|----------|-------------------|------------|---------|-------|",
+    ]
+    for r in records:
+        q = "✓" if r["quality_pass"] else "✗"
+        lines.append(
+            f"| {r['case_id']} | {r['routed']} | {r['bypassed']} | {r['reduction_applied']} | "
+            f"{r['rehydrated']} | {q} | {r['error'] or ''} |"
+        )
+    return "\n".join(lines), {
+        "eligible": n, "routed": routed, "bypassed": bypassed,
+        "reduction_applied": applied, "rehydrated": rehydrated,
+        "quality_passes": quality, "failures": failures,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -493,14 +659,15 @@ def generate_markdown(reports):
     lines = [
         "# CostMax Evaluation Report",
         "",
-        "| Case | Outcome | Baseline tokens | Active tokens | Savings | Baseline pass | Active pass | Rehydrated |",
-        "|------|---------|----------------|---------------|---------|--------------|-------------|------------|",
+        "| Case | Outcome | Baseline tokens | Active tokens | Savings | Baseline pass | Active pass | Rehydrated | Control miss |",
+        "|------|---------|----------------|---------------|---------|--------------|-------------|------------|--------------|",
     ]
     for r in reports:
         bp = "✓" if r["baseline"]["all_match"] and not r["baseline"]["error"] else "✗"
         ap = "✓" if r["active"]["all_match"] and not r["active"]["error"] else "✗"
         rh = "✓" if r["active"]["rehydrated"] else ""
-        lines.append(f"| {r['case_id']} | {r['outcome']} | {r['baseline']['tokens']} | {r['active']['tokens']} | {r['saving']} | {bp} | {ap} | {rh} |")
+        cm = "✓" if r["baseline"].get("control_miss") else ""
+        lines.append(f"| {r['case_id']} | {r['outcome']} | {r['baseline']['tokens']} | {r['active']['tokens']} | {r['saving']} | {bp} | {ap} | {rh} | {cm} |")
 
     # Aggregate section — model-visible tool-output estimates, not billed cost or intelligence
     n = len(reports)
@@ -511,6 +678,7 @@ def generate_markdown(reports):
     no_saving = sum(1 for r in reports if r["outcome"] == "quality_no_saving")
     harness_failures = sum(1 for r in reports if r["outcome"] == "harness_failure")
     quality_failures = sum(1 for r in reports if r["outcome"] == "quality_failure")
+    control_misses = sum(1 for r in reports if r["baseline"].get("control_miss"))
     total_base_tokens = sum(r["baseline"]["tokens"] for r in reports)
     total_active_tokens = sum(r["active"]["tokens"] for r in reports)
     delta = total_active_tokens - total_base_tokens
@@ -522,6 +690,7 @@ def generate_markdown(reports):
     lines.append(f"|--------|-------|")
     lines.append(f"| Total cases | {n} |")
     lines.append(f"| Baseline quality passes | {baseline_pass}/{n} |")
+    lines.append(f"| Baseline control misses | {control_misses} |")
     lines.append(f"| Active quality passes | {active_pass}/{n} |")
     lines.append(f"| Non-rehydrated savings cases | {saving_yes} |")
     lines.append(f"| Correct but no-saving cases | {no_saving} |")
@@ -532,6 +701,19 @@ def generate_markdown(reports):
     lines.append(f"| Total active tool-output token estimate | {total_active_tokens} |")
     lines.append(f"| Overall token change | {delta:+d} |")
 
+    missed = [r for r in reports if r["baseline"].get("control_miss")]
+    if missed:
+        lines.append("")
+        lines.append("## Baseline control misses")
+        lines.append("")
+        lines.append("A control miss means the baseline (no-CostMax) transcript is valid and the")
+        lines.append("command ran correctly, but the model's answer did not match every expected")
+        lines.append("pattern. It is reported here honestly and does not fail the run: the active")
+        lines.append("arm and harness invariants determine the exit code.")
+        lines.append("")
+        for r in missed:
+            lines.append(f"- {r['case_id']} run {r.get('run', '?')}: matches={r['baseline']['answer_matches']}")
+
     for r in reports:
         errs = []
         if r["baseline"]["error"]:
@@ -541,6 +723,32 @@ def generate_markdown(reports):
         if errs:
             lines.append(f"\n## {r['case_id']} errors\n" + "\n".join(errs))
     return "\n".join(lines)
+
+
+def evaluate_exit(reports):
+    """Compute the run exit semantics. Pure over report dicts.
+
+    Returns ``(exit_code, failures, control_misses)`` where ``failures`` is a
+    list of printable FAIL lines and ``control_misses`` a list of
+    ``(case_id, run)`` tuples.
+
+    Fail-closed: any active error or active answer mismatch, any baseline
+    subprocess/command/transcript error, an MCP bypass (missing/duplicate
+    ``costmax_run`` or a direct Bash call) fails the run. A baseline answer
+    mismatch on a valid baseline transcript is a control miss: recorded and
+    reported as a warning, and the run still exits 0 when the active arm and
+    harness invariants pass.
+    """
+    failures = []
+    control_misses = []
+    for r in reports:
+        if r["baseline"]["error"]:
+            failures.append(f"baseline {r['case_id']} run {r.get('run', '?')}: {r['baseline']['error']}")
+        if r["active"]["error"]:
+            failures.append(f"active {r['case_id']} run {r.get('run', '?')}: {r['active']['error']}")
+        if r["baseline"].get("control_miss"):
+            control_misses.append((r["case_id"], r.get("run", "?")))
+    return (0 if not failures else 1), failures, control_misses
 
 
 # ---------------------------------------------------------------------------
@@ -634,6 +842,192 @@ def run_self_test():
     if count_bash_calls(bash_events) != 1:
         errors.append("Bash fallback parsing failed")
 
+    # Adoption classification: routed through costmax_run with a reduce
+    # recommendation, quality answer present.
+    routed_adoption = parse_jsonl(write_tmp_jsonl("""\
+{"type":"item.completed","item":{"type":"mcp_tool_call","tool":"costmax_run","server":"costmaxx","status":"completed","result":{"content":[{"type":"text","text":"[costmax_run] Recommendation: reduce\\nModel-visible tokens: 10\\nArtifact ID: a1\\n---\\ncompact"}]}}}
+{"type":"item.completed","item":{"type":"agent_message","text":"The answer is 100"}}
+"""))
+    c = classify_adoption(routed_adoption, ["100"])
+    if not c["routed"] or c["bypassed"] or not c["reduction_applied"] or not c["quality_pass"]:
+        errors.append(f"adoption routed classification wrong: {c}")
+    # Adoption classification: bypassed via a direct command.
+    bypass_adoption = parse_jsonl(write_tmp_jsonl("""\
+{"type":"item.completed","item":{"type":"command_execution","command":"cat data.txt","aggregated_output":"line 1\\nline 100","status":"completed"}}
+{"type":"item.completed","item":{"type":"agent_message","text":"The answer is 100"}}
+"""))
+    c2 = classify_adoption(bypass_adoption, ["100"])
+    if c2["routed"] or not c2["bypassed"] or c2["reduction_applied"] or not c2["quality_pass"]:
+        errors.append(f"adoption bypass classification wrong: {c2}")
+    # Adoption summary aggregation is exact.
+    md, agg = write_adoption_report([
+        {"case_id": "a", "routed": True, "bypassed": False, "reduction_applied": True,
+         "rehydrated": False, "quality_pass": True, "error": None},
+        {"case_id": "b", "routed": False, "bypassed": True, "reduction_applied": False,
+         "rehydrated": False, "quality_pass": True, "error": None},
+        {"case_id": "c", "routed": False, "bypassed": False, "reduction_applied": False,
+         "rehydrated": True, "quality_pass": False, "error": "harness"},
+    ])
+    if agg != {"eligible": 3, "routed": 1, "bypassed": 1, "reduction_applied": 1,
+               "rehydrated": 1, "quality_passes": 2, "failures": 1}:
+        errors.append(f"adoption summary aggregation wrong: {agg}")
+    if "Organic-Adoption" not in md:
+        errors.append("adoption markdown header missing")
+
+    # --- Baseline control-miss classification / exit semantics --------------
+    # A baseline answer mismatch on a valid baseline transcript is a control
+    # miss/warning, not a run failure; everything else stays fail-closed.
+    from copy import deepcopy
+
+    def make_report(**over):
+        r = {
+            "case_id": "case-x", "run": 1, "outcome": "pending", "saving": "yes",
+            "baseline": {"output_text": "out", "chars": 4, "tokens": 1, "answer": "nine",
+                         "answer_matches": [("10", False)], "all_match": False,
+                         "control_miss": False, "error": None},
+            "active": {"output_text": "out", "chars": 2, "tokens": 0, "answer": "ten",
+                       "answer_matches": [("10", True)], "all_match": True,
+                       "costmax_calls": 1, "resource_calls": 0, "bash_calls": 0,
+                       "rehydrated": False, "error": None},
+        }
+        r.update(over)
+        return r
+
+    # Control miss: baseline transcript valid, answer mismatch. The run exits
+    # success and records the miss explicitly.
+    cm_report = make_report()
+    classify_case_report(cm_report)
+    if not cm_report["baseline"]["control_miss"] or cm_report["baseline"]["error"]:
+        errors.append(f"control miss must be flagged and not a baseline error: {cm_report['baseline']}")
+    if cm_report["outcome"] != "quality_and_saving":
+        errors.append(f"control-miss outcome wrong: {cm_report['outcome']}")
+    ec, failures, misses = evaluate_exit([cm_report])
+    if ec != 0 or failures or misses != [("case-x", 1)]:
+        errors.append(f"control miss must not fail the run: exit={ec} failures={failures} misses={misses}")
+
+    # Baseline subprocess/command error stays fail-closed.
+    sub_err = make_report()
+    sub_err["baseline"]["error"] = "command exit=2 (expected 0)"
+    classify_case_report(sub_err)
+    if not sub_err["baseline"]["error"] or sub_err["baseline"]["control_miss"]:
+        errors.append("baseline command error must remain a hard failure, not a control miss")
+    ec, failures, _ = evaluate_exit([sub_err])
+    if ec != 1 or not failures or "baseline case-x" not in failures[0]:
+        errors.append(f"baseline command error must fail the run: exit={ec} failures={failures}")
+
+    # Missing baseline transcript/output stays fail-closed.
+    missing_base = make_report()
+    missing_base["baseline"]["output_text"] = ""
+    missing_base["baseline"]["error"] = "expected_command output not found in transcript"
+    classify_case_report(missing_base)
+    ec, failures, _ = evaluate_exit([missing_base])
+    if ec != 1 or not failures:
+        errors.append(f"missing baseline output must fail the run: exit={ec} failures={failures}")
+
+    # Active answer mismatch stays fail-closed (quality_failure).
+    active_miss = make_report()
+    active_miss["active"]["all_match"] = False
+    classify_case_report(active_miss)
+    if not active_miss["active"]["error"] or active_miss["outcome"] != "quality_failure":
+        errors.append(f"active answer mismatch must be a quality failure: {active_miss}")
+    ec, failures, _ = evaluate_exit([active_miss])
+    if ec != 1 or not failures:
+        errors.append(f"active answer mismatch must fail the run: exit={ec} failures={failures}")
+
+    # MCP bypass (active used Bash) stays fail-closed (harness_failure).
+    bypass = make_report()
+    bypass["active"]["bash_calls"] = 1
+    classify_case_report(bypass)
+    if not bypass["active"]["error"] or bypass["outcome"] != "harness_failure":
+        errors.append(f"MCP bypass must be a harness failure: {bypass}")
+    ec, failures, _ = evaluate_exit([bypass])
+    if ec != 1 or not failures:
+        errors.append(f"MCP bypass must fail the run: exit={ec} failures={failures}")
+
+    # Markdown must surface the control miss and exclude it from baseline passes.
+    md2 = generate_markdown([cm_report])
+    if "| Baseline control misses | 1 |" not in md2:
+        errors.append("markdown aggregate must report the baseline control miss")
+    if "| Baseline quality passes | 0/1 |" not in md2:
+        errors.append("markdown must exclude the control miss from baseline passes")
+    if "## Baseline control misses" not in md2:
+        errors.append("markdown must include a control-miss detail section")
+    if "| case-x | quality_and_saving |" not in md2 or "| ✓ |" not in md2.split("| case-x |")[1]:
+        errors.append("markdown case table must show the outcome and control-miss column")
+
+    # --- Fail-closed startup paths -----------------------------------------
+    # A missing codex CLI must abort with a concise actionable error and no
+    # traceback, and it must not leave a partially-created evidence directory.
+    saved_path = os.environ.get("PATH", "")
+    try:
+        os.environ["PATH"] = ""
+        err, info = check_toolchain()
+        if not err or "codex" not in err or info is not None:
+            errors.append(f"check_toolchain must flag missing codex: err={err!r} info={info!r}")
+        rc, err2 = run_codex("/tmp/costmax-missing-codex", "hello", write_tmp_jsonl(""))
+        if rc != -1 or "codex" not in err2 or "PATH" not in err2:
+            errors.append(f"run_codex missing codex must fail closed: rc={rc} err={err2!r}")
+    finally:
+        os.environ["PATH"] = saved_path
+
+    # Preflight retries a transient timeout exactly once, then succeeds; a
+    # non-timeout failure is NOT retried.
+    real_run_codex = run_codex
+    preflight_ok_jsonl = (
+        '{"type":"item.completed","item":{"id":"i1","type":"mcp_tool_call","tool":"costmax_run",'
+        '"server":"costmaxx","status":"completed","result":{"content":[{"type":"text",'
+        '"text":"[costmax_run] costmax-preflight-ok"}]}}}\n'
+    )
+    try:
+        timeout_calls = []
+
+        def timeout_then_ok(repo, prompt, jsonl_path, mcp_wrapper=None, timeout=300):
+            timeout_calls.append(1)
+            if len(timeout_calls) == 1:
+                return -1, "timeout after 180s\nstalled"
+            with open(jsonl_path, "w") as f:
+                f.write(preflight_ok_jsonl)
+            return 0, ""
+
+        globals()["run_codex"] = timeout_then_ok
+        res = run_preflight("/tmp/preflight-repo", "/tmp/preflight-wrapper", write_tmp_jsonl(""))
+        if not res["ok"] or len(timeout_calls) != 2 or res["error"] is not None:
+            errors.append(f"preflight timeout retry must succeed on attempt 2: calls={timeout_calls} res={res}")
+
+        fail_calls = []
+
+        def always_fail(repo, prompt, jsonl_path, mcp_wrapper=None, timeout=300):
+            fail_calls.append(1)
+            return 1, "boom"
+
+        globals()["run_codex"] = always_fail
+        res2 = run_preflight("/tmp/preflight-repo", "/tmp/preflight-wrapper", write_tmp_jsonl(""))
+        if len(fail_calls) != 1 or res2["ok"] or "codex exit=1" not in (res2["error"] or ""):
+            errors.append(f"preflight must not retry non-timeout failures: calls={fail_calls} res={res2}")
+    finally:
+        globals()["run_codex"] = real_run_codex
+
+    # End-to-end: --adoption with a missing codex CLI must exit 1 with an
+    # actionable error and MUST NOT create the requested results directory.
+    with tempfile.TemporaryDirectory(prefix="costmax-eval-cli-") as tmp:
+        fake_binary = os.path.join(tmp, "costmaxx")
+        with open(fake_binary, "w") as f:
+            f.write("#!/bin/sh\n")
+        os.chmod(fake_binary, 0o755)
+        ev_dir = os.path.join(tmp, "evidence")
+        proc = subprocess.run(
+            [sys.executable, os.path.abspath(__file__), "--adoption", "--binary", fake_binary,
+             "--results-dir", ev_dir],
+            capture_output=True, text=True,
+            env={**os.environ, "PATH": ""},
+        )
+        if proc.returncode != 1:
+            errors.append(f"missing-codex --adoption must exit 1, got {proc.returncode}: {proc.stdout}{proc.stderr}")
+        if "codex CLI not found" not in (proc.stdout + proc.stderr):
+            errors.append(f"missing-codex --adoption must print actionable error, got: {proc.stdout!r} {proc.stderr!r}")
+        if os.path.exists(ev_dir):
+            errors.append("missing-codex --adoption must not create a partial evidence directory")
+
     if errors:
         for e in errors:
             print(f"  FAIL: {e}")
@@ -679,10 +1073,12 @@ def main():
     ap.add_argument("--preflight-runs", type=int, default=0, help="run MCP-only availability checks before evaluations")
     ap.add_argument("--preflight-only", action="store_true", help="run only MCP availability checks")
     ap.add_argument("--results-dir", help="directory for immutable reports/transcripts")
+    ap.add_argument("--adoption", action="store_true",
+                    help="run the organic-adoption arm (model chooses freely, no forced costmax_run)")
     ap.add_argument("--yes", action="store_true", help="acknowledge live API usage without a prompt")
     args = ap.parse_args()
 
-    is_self = args.self_test or args.fixture_smoke or not args.live
+    is_self = args.self_test or args.fixture_smoke or not (args.live or args.adoption)
 
     if is_self:
         ok = run_self_test()
@@ -692,19 +1088,21 @@ def main():
 
     # Live mode
     if not args.binary:
-        print("ERROR: --binary <path> is required with --live")
+        print("ERROR: --binary <path> is required with --live/--adoption")
         sys.exit(1)
     if not os.path.isfile(args.binary):
         print(f"ERROR: binary not found: {args.binary}")
         sys.exit(1)
     if args.repetitions < 1 or args.preflight_runs < 0:
         ap.error("--repetitions must be >= 1 and --preflight-runs must be >= 0")
-    if not args.yes:
-        print("WARNING: Live mode incurs API usage costs.")
-        confirm = input("Type 'yes' to continue: ")
-        if confirm != "yes":
-            print("Aborted.")
-            sys.exit(1)
+
+    # Fail closed before creating any evidence: a missing Codex CLI or git must
+    # abort with a concise actionable error and no partial results directory.
+    toolchain_error, toolchain = check_toolchain()
+    if toolchain_error:
+        print(f"ERROR: {toolchain_error}")
+        sys.exit(1)
+    codex_version = toolchain["codex_version"]
 
     cases = load_cases()
     if args.case:
@@ -713,12 +1111,54 @@ def main():
             print(f"Case '{args.case}' not found")
             sys.exit(1)
 
+    # Organic-adoption arm: separate experiment. The model chooses freely;
+    # nothing forces costmax_run. Results are written to adoption.json.
+    if args.adoption:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        results_dir = os.path.abspath(args.results_dir or os.path.join(PROJECT_ROOT, "results", f"adoption-{stamp}"))
+        try:
+            os.makedirs(results_dir, exist_ok=False)
+        except FileExistsError:
+            print(f"ERROR: evidence directory already exists: {results_dir}")
+            sys.exit(1)
+        with open(args.binary, "rb") as f:
+            binary_sha256 = hashlib.sha256(f.read()).hexdigest()
+        manifest = {"created_at": stamp, "mode": "adoption",
+                    "costmax_binary_sha256": binary_sha256, "codex_version": codex_version}
+        with open(os.path.join(results_dir, "manifest.json"), "w") as f:
+            json.dump(manifest, f, indent=2)
+
+        records = []
+        for case in cases:
+            print(f"  Adoption {case['id']}...")
+            r = evaluate_adoption(case, os.path.join(results_dir, f"adopt-{case['id']}"), args.binary)
+            records.append(r)
+        with open(os.path.join(results_dir, "adoption.json"), "w") as f:
+            json.dump(records, f, indent=2)
+        md, agg = write_adoption_report(records)
+        with open(os.path.join(results_dir, "adoption.md"), "w") as f:
+            f.write(md + "\n")
+        print("\n".join(md.splitlines()[:10]))
+        print(f"\nAdoption evidence: {results_dir}")
+        print(f"Adoption JSON: {os.path.join(results_dir, 'adoption.json')}")
+        return 0
+
+    if not args.yes:
+        print("WARNING: Live mode incurs API usage costs.")
+        confirm = input("Type 'yes' to continue: ")
+        if confirm != "yes":
+            print("Aborted.")
+            sys.exit(1)
+
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     results_dir = os.path.abspath(args.results_dir or os.path.join(PROJECT_ROOT, "results", stamp))
-    os.makedirs(results_dir, exist_ok=False)
+    try:
+        os.makedirs(results_dir, exist_ok=False)
+    except FileExistsError:
+        print(f"ERROR: evidence directory already exists: {results_dir}")
+        sys.exit(1)
     with open(args.binary, "rb") as f:
         binary_sha256 = hashlib.sha256(f.read()).hexdigest()
-    codex_version = subprocess.check_output(["codex", "--version"], text=True).strip()
     fixture_hashes = {os.path.basename(p): hashlib.sha256(open(p, "rb").read()).hexdigest()
                       for p in sorted(glob.glob(os.path.join(CASES_DIR, "*.json")))}
     manifest = {"created_at": stamp, "costmax_binary": os.path.abspath(args.binary),
@@ -771,21 +1211,19 @@ def main():
     print(f"Report MD:  {rm}")
     print(f"Evidence directory: {results_dir}")
 
-    all_ok = all(
-        not r["baseline"]["error"] and not r["active"]["error"]
-        and r["baseline"]["all_match"] and r["active"]["all_match"]
-        for r in reports
-    )
-    if all_ok:
+    exit_code, failures, control_misses = evaluate_exit(reports)
+    for failure in failures:
+        print(f"  FAIL {failure}")
+    for case_id, run in control_misses:
+        print(f"  WARN baseline {case_id} run {run}: control miss — baseline transcript is valid but the model answer did not match all expected patterns")
+    if failures:
+        print("OVERALL: FAIL")
+        return exit_code
+    if control_misses:
+        print(f"OVERALL: PASS ({len(control_misses)} baseline control miss(es) recorded; active arm and harness invariants passed)")
+    else:
         print("OVERALL: PASS")
-        return 0
-    for r in reports:
-        if r["baseline"]["error"]:
-            print(f"  FAIL baseline {r['case_id']}: {r['baseline']['error']}")
-        if r["active"]["error"]:
-            print(f"  FAIL active {r['case_id']}: {r['active']['error']}")
-    print("OVERALL: FAIL")
-    return 1
+    return exit_code
 
 
 if __name__ == "__main__":

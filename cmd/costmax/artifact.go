@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"github.com/derinbarutcu17/costmaxx/internal/events"
@@ -34,15 +35,33 @@ var artifactAddCmd = &cobra.Command{
 		}
 
 		// Delegate the shared ingestion chain (redact, store, classify, reduce,
-		// recommend, guard, metrics) so the CLI emits the same envelope as the
-		// MCP costmax_run tool for identical inputs.
+		// recommend, guard, metrics, ledger) so the CLI emits the same envelope
+		// as the MCP costmax_run tool for identical inputs. The session id is
+		// the stable CLI constant.
+		//
+		// Call identity: two independent `artifact add` invocations are two
+		// real calls and must both count, so the default call ref is a fresh
+		// unique id per invocation. Passing --call-ref/--idempotency-key opts
+		// into retry deduplication: the same explicit ref re-derives the same
+		// ledger idempotency key, and the pipeline replays the stored envelope
+		// instead of recording a second call.
+		callRef, _ := cmd.Flags().GetString("call-ref")
+		if callRef == "" {
+			// --idempotency-key is a documented alias for --call-ref.
+			callRef, _ = cmd.Flags().GetString("idempotency-key")
+		}
+		if callRef == "" {
+			callRef = uuid.New().String()
+		}
 		responseText, err := pipeline.Process(pipeline.Deps{
 			Store:      artStore,
 			DB:         db,
 			Classifier: events.NewClassifier(),
 			Registry:   reducers.NewRegistry(cfg),
 			Redactor:   privacy.NewRedactor(),
-			SessionID:  "cli-" + adapter.SessionID(),
+			SessionID:  "cli",
+			Harness:    "cli",
+			CallRef:    callRef,
 		}, string(raw), command, cwd, exitCode, "cli_artifact_add")
 		if err != nil {
 			return err

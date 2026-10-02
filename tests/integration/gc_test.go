@@ -143,7 +143,55 @@ func countZst(t *testing.T, home string) int {
 // Before the DSN pragma fix (mattn-style params ignored by modernc) and the
 // idempotent v4 migration, this reliably produced SQLITE_BUSY and
 // "duplicate column name: cwd" failures.
-func TestConcurrentColdStartAllSucceed(t *testing.T) {
+//
+// All 12 processes run the SAME logical call (identical command, cwd, exit
+// code, and stdin) under the SAME explicit --call-ref, so they must dedupe to
+// exactly one canonical ledger/artifact/reduction row and one on-disk file —
+// no errors, no double counting, no orphan. This is the retry-dedup
+// contract: the explicit ref identifies one logical call.
+func TestConcurrentColdStartSameRefDedupes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("concurrency regression")
+	}
+	home := newIsolatedHome(t)
+	const n = 12
+	errs := make(chan string, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			cmd := exec.Command(costmaxBinary, "artifact", "add", "--command", "echo hi", "--exit-code", "0", "--call-ref", "conc-same-ref")
+			cmd.Env = append(os.Environ(), "HOME="+home)
+			cmd.Stdin = strings.NewReader("payload\n")
+			if out, err := cmd.CombinedOutput(); err != nil {
+				errs <- string(out)
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for e := range errs {
+		t.Errorf("concurrent cold-start failure: %s", e)
+	}
+	dbPath := filepath.Join(home, ".costmax", "costmax.db")
+	if got := rowsInTable(t, dbPath, "artifacts"); got != 1 {
+		t.Errorf("expected 1 artifact row after 12 concurrent same-ref calls, got %d", got)
+	}
+	if got := rowsInTable(t, dbPath, "call_ledger"); got != 1 {
+		t.Errorf("expected 1 ledger row after 12 concurrent same-ref calls, got %d", got)
+	}
+	if got := countZst(t, home); got != 1 {
+		t.Errorf("expected 1 on-disk artifact file after 12 concurrent same-ref calls, got %d", got)
+	}
+}
+
+// TestConcurrentColdStartIndependentCallsCountSeparately proves that without
+// an explicit ref, concurrent identical invocations are independent real
+// calls: every one records its own ledger and artifact row (no undercounting),
+// while the content-addressed store keeps exactly one on-disk file. No orphan
+// files are left behind because every row references the shared digest.
+func TestConcurrentColdStartIndependentCallsCountSeparately(t *testing.T) {
 	if testing.Short() {
 		t.Skip("concurrency regression")
 	}
@@ -168,7 +216,15 @@ func TestConcurrentColdStartAllSucceed(t *testing.T) {
 	for e := range errs {
 		t.Errorf("concurrent cold-start failure: %s", e)
 	}
-	if got := rowsInTable(t, filepath.Join(home, ".costmax", "costmax.db"), "artifacts"); got != n {
-		t.Errorf("expected %d artifact rows, got %d", n, got)
+	dbPath := filepath.Join(home, ".costmax", "costmax.db")
+	if got := rowsInTable(t, dbPath, "call_ledger"); got != n {
+		t.Errorf("expected %d ledger rows for %d independent calls, got %d", n, n, got)
+	}
+	if got := rowsInTable(t, dbPath, "artifacts"); got != n {
+		t.Errorf("expected %d artifact rows for %d independent calls, got %d", n, n, got)
+	}
+	// Content-addressed store: one shared on-disk file for identical bytes.
+	if got := countZst(t, home); got != 1 {
+		t.Errorf("expected 1 shared on-disk file for identical bytes, got %d", got)
 	}
 }

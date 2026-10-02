@@ -17,7 +17,10 @@ it.**
 ## Live savings
 
 Measured on the owner's daily stack (opencode + codex, deepseek-v4-flash),
-last 7 days, continuously self-measured via `costmaxx savings`:
+7-day window, 2026-08-27 — the last snapshot recorded before reporting moved
+to the immutable per-call ledger. Current reporting (`costmaxx savings`) is
+ledger-based by actual event timestamp; see
+[docs/HONEST-NUMBERS.md](docs/HONEST-NUMBERS.md):
 
 | Metric | Value |
 |---|---|
@@ -37,11 +40,15 @@ estimates on one user's stack — see [Why you can trust the numbers](#why-you-c
 
 Coding agents burn tokens on output they barely use: 1,000-line test runs
 for three failing tests, full diffs for a rename, complete build logs for
-one error. CostMax intercepts those commands, returns the model a compact
-summary, and keeps the raw output retrievable by digest.
+one error. When a command is routed through `costmax_run`, CostMax returns a
+compact summary and keeps the raw output retrievable by digest.
 
-Local-first: nothing leaves your machine. Codex CLI and opencode, as an
-opt-in MCP server. Hooks are observe-only.
+Local-first: CostMax sends no telemetry. Commands execute with your process
+permissions and may contact external services if the command itself does.
+It's a plain stdio MCP server: any MCP-capable agent can register it (Codex
+CLI, opencode, Hermes, Gemini CLI, or your own client) and call the opt-in
+`costmax_run` tool. Codex additionally gets observe-only lifecycle hooks that
+record evidence; no hook replaces tool output.
 
 **Before and after — the same failing test run, two ways:**
 
@@ -90,8 +97,9 @@ input side, CostMax's, is the one that dominates agentic bills.
 ## Install
 
 ```bash
-# From source
-go install github.com/derinbarutcu17/costmaxx/cmd/costmax@latest
+# From source (the package dir is `costmax`; install it as `costmaxx`):
+go install github.com/derinbarutcu17/costmaxx/cmd/costmax@latest \
+  && mv "$(go env GOPATH)/bin/costmax" "$(go env GOPATH)/bin/costmaxx"
 
 # Or a release binary (all platforms in Releases)
 # macOS arm64:
@@ -100,8 +108,14 @@ chmod +x costmaxx
 
 # Wire it up (backups made first):
 costmaxx install                      # Codex (~/.codex/config.toml)
-costmaxx install --target opencode    # opencode (opencode.jsonc) + plugin
+costmaxx install --target opencode    # opencode (opencode.jsonc)
+costmaxx install --target hermes      # Hermes (~/.hermes/config.yaml)
 ```
+
+`costmaxx install` modifies exactly one named MCP config file for Codex,
+opencode, or Hermes. It creates a timestamped backup beside an existing file,
+refuses to overwrite a non-CostMax entry, and writes through an atomic rename.
+It never installs hooks or plugins.
 
 Per-agent matrix, uninstall, and daily maintenance: [docs/INSTALL.md](docs/INSTALL.md).
 
@@ -136,6 +150,20 @@ CostMax's savings claims come from a live evaluation, not a benchmark
 script that ran once on a laptop. One fresh binary, 20 deterministic
 fixtures, 3 repetitions, audited from the raw Codex transcripts.
 
+> Auditability: the retained 2026-08-05 run's raw transcripts are **not
+> committed in this checkout**, so those numbers are historical documentation,
+> not locally re-auditable evidence. The exact blocker, the strict audit
+> command, and how to re-produce the run are in [docs/RESULTS.md](docs/RESULTS.md).
+> The deterministic checks that DO run from a clean checkout are listed under
+> [Why you can trust the numbers](#why-you-can-trust-the-numbers).
+
+This checkout also contains a compact, ignored local bundle from a fresh
+2026-09-02 real-Codex run (`results/20260902T-live-proof/`): 60/60 active
+quality passes, 55.4% lower model-visible estimates, and an independently
+passing transcript audit. It is local evidence, not committed repository
+evidence; see [docs/RESULTS.md](docs/RESULTS.md) for the hash and exact audit
+command.
+
 | Benchmark | What it measures | Result |
 |---|---|---|
 | 20 deterministic fixtures × 3 reps | Model-visible tool output (len/4 estimate) | **60.6% less** (36,645 → 14,436) |
@@ -155,6 +183,15 @@ The one control miss was the baseline arm (no CostMax): the model counted
 9 matching files where the fixture had 10. The CostMax route answered that
 same case correctly in all three repetitions. Control-arm noise, reported
 honestly rather than hidden.
+
+Exit semantics: the evaluator exits `0` when the active arm and the harness
+invariants pass. A baseline answer mismatch on a valid baseline transcript is
+recorded as an explicit control miss/warning (`baseline.control_miss` in
+`report.json`, a `Control miss` column + aggregate in `report.md`, and a
+console `WARN`) and does not fail the run. Missing baseline transcripts,
+baseline subprocess/command errors, active errors, active answer mismatches,
+and MCP bypasses still fail closed; `verify-live-results.py --require-baseline`
+stays strict and fails on the control miss.
 
 These are `len(text)/4` estimates of tool-result text, not billed-token
 measurements. Methodology: [docs/benchmark-methodology.md](docs/benchmark-methodology.md).
@@ -200,18 +237,26 @@ costmaxx mcp                  # start the MCP server (stdio JSON-RPC, newline fr
 costmaxx mcp --spec-framing   # MCP spec Content-Length framing (Python SDK, etc.)
 costmaxx install              # add CostMax's named MCP entry to Codex
 costmaxx install --target opencode  # register the MCP server in opencode.jsonc
-costmaxx uninstall            # remove only that entry
+costmaxx install --target hermes    # register the MCP server in ~/.hermes/config.yaml
+costmaxx uninstall            # remove only that entry (use --target for opencode/hermes)
 costmaxx doctor               # check binary, config, storage, handshake
 costmaxx status               # process-local metrics
 costmaxx savings              # aggregate savings report (daily/weekly snapshots)
 costmaxx state <session-id>   # task state for a session
-costmaxx report <session-id>  # session report from persisted metrics
+costmaxx report <session-id>  # session report from the call ledger
 costmaxx gc                   # garbage-collect old artifacts (files + metadata)
 costmaxx replay <id>          # re-run the stored command of an artifact
 costmaxx artifact add         # store raw output from stdin, print cmx:// envelope
+costmaxx artifact add --call-ref <key>   # same key = same logical call (retry dedup)
 costmaxx artifact retrieve <id>  # print the full stored output of an artifact
 costmaxx artifact path <id>   # print the on-disk storage path of an artifact
 ```
+
+Every `artifact add` counts as one call. Without `--call-ref` (alias
+`--idempotency-key`) each invocation is an independent call and is recorded
+separately; passing an explicit key opts into retry deduplication — re-running
+with the same key replays the canonical stored envelope instead of recording a
+second call.
 
 ## The receipt
 
@@ -234,15 +279,17 @@ Receipt: replay: costmaxx replay 3ebf2cff-…        # passthrough (nothing cut)
 
 CostMax is registered as a local stdio MCP server in `opencode.jsonc`
 (`costmaxx install --target opencode` writes the block, backing up first). The
-tool shows up as `costmaxx_costmax_run`.
+tool shows up as `costmaxx_costmax_run` and behaves identically to the Codex
+MCP path: execute, reduce, store, retrieve.
 
-A companion plugin, `~/.config/opencode/plugins/costmaxx.ts`, auto-compresses
-bash tool results larger than a threshold (default 20k chars) into the same
-`cmx://artifact/<id>` envelope, storing the full raw output — the model can
-retrieve it with `costmaxx artifact retrieve <id>` or the MCP resource.
-Config: `COSTMAX_DISABLE=1` disables the plugin; `COSTMAX_COMPRESS_THRESHOLD`
-or `[reduce] threshold` in `~/.costmax/config.toml` set the cutoff. The
-artifact store is shared with Codex sessions.
+An opencode auto-compression TypeScript plugin (`~/.config/opencode/plugins/
+costmaxx.ts`) is **documented but not shipped in this repository** — there is
+no plugin file under `packages/` or the repo root, and this checkout makes no
+claim that opencode compresses tool output automatically. Until such a plugin
+exists and is installed, opencode compression happens only when the model
+calls `costmaxx_costmax_run` explicitly (or the CLI `costmaxx artifact add`
+pipes the output). Any third-party plugin you install is external to CostMax
+and outside this repo's integrity guarantees.
 
 ### Ecosystem: stacking, not competing
 
@@ -250,6 +297,15 @@ Pairs with [Caveman](https://github.com/JuliusBrussee/caveman) and
 [ponytail](https://github.com/DietrichGebert/ponytail)-style skills — they
 shape what the agent writes, CostMax shapes what it reads. Same bill, three
 sides.
+
+## Hermes integration
+
+Hermes is MCP client support, not a bespoke adapter. `costmaxx install --target
+hermes` writes a `costmaxx` entry under the top-level `mcp_servers:` key in
+`~/.hermes/config.yaml` (backing up first), so Hermes launches the stdio MCP
+server at startup. Hermes' tools list names it `costmaxx:costmax_run`; the
+model-facing namespace is `mcp__costmaxx__costmax_run`. MCP use stays
+opt-in: Hermes only compresses when the model calls that tool.
 
 ## What CostMax does not claim
 
@@ -259,8 +315,12 @@ sides.
   fixtures, not arbitrary production repositories.
 - **No automatic adoption.** The model must call `costmax_run` explicitly;
   hooks remain observe-only.
-- **Codex-only adapter.** Claude/Hermes adapters were removed; opencode is
-  supported via the MCP server and plugin above.
+- **Codex-only hooks.** The only bespoke adapter is Codex (observe-only hooks);
+  Claude/Hermes bespoke adapters were removed. opencode and Hermes are MCP
+  client support — `costmaxx install --target opencode|hermes` registers the
+  stdio MCP server in the client's own config. The MCP tool is
+  client-agnostic: any spec-compliant MCP client can register `costmaxx mcp`.
+  No auto-compression plugin ships in this repository.
 
 ## Docs
 

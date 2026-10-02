@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "costmaxx": {
+      "command": "costmaxx",
+      "args": ["mcp"],
+      "type": "stdio",
+      "description": "CostMax local command execution with opt-in output reduction and retrievable artifact storage"
+    }
+  }
+}

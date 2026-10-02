@@ -319,7 +319,7 @@ func (s *Server) handleToolCall(req jsonRPCRequest) jsonRPCResponse {
 		return errorResponse(req.ID, -32602, "command is required")
 	}
 
-	result, err := s.execute(args.Command, args.Cwd)
+	result, err := s.execute(args.Command, args.Cwd, req.ID)
 	if err != nil {
 		return jsonRPCResponse{
 			JSONRPC: "2.0",
@@ -345,7 +345,33 @@ type runResult struct {
 	CompactTokens int    `json:"compact_estimated_tokens"`
 }
 
-func (s *Server) execute(command, cwd string) (*toolCallResult, error) {
+func (s *Server) execute(command, cwd string, reqID json.RawMessage) (*toolCallResult, error) {
+	// Idempotency pre-check before executing anything: a JSON-RPC retry with
+	// the same request id (and the same server process, which is one client
+	// session) is answered from the stored evidence — no second execution, no
+	// second artifact, no double counting. The boundary is per server process:
+	// each `costmaxx mcp` invocation is a distinct session, so the same id from
+	// a different subprocess is a genuinely different call and is recorded
+	// separately.
+	if id := idempotencyRef(reqID); id != "" {
+		key := store.LedgerIdempotencyKey("mcp", s.sessionID, id)
+		prior, err := s.db.GetLedgerByIdempotencyKey(key)
+		if err != nil {
+			return nil, fmt.Errorf("ledger pre-check: %w", err)
+		}
+		if prior != nil && prior.ArtifactID != "" && prior.Outcome != store.LedgerOutcomeError {
+			text, err := pipeline.RenderStored(s.db, s.artStore, prior)
+			if err != nil {
+				return nil, fmt.Errorf("replay stored result: %w", err)
+			}
+			return &toolCallResult{
+				Content: []contentItem{{Type: "text", Text: text}},
+				// A nonzero original exit is evidence, not a transport failure.
+				IsError: false,
+			}, nil
+		}
+	}
+
 	cmd := exec.Command("sh", "-c", command)
 	if cwd != "" {
 		cmd.Dir = cwd
@@ -372,8 +398,8 @@ func (s *Server) execute(command, cwd string) (*toolCallResult, error) {
 	output := string(raw)
 
 	// Delegate the shared ingestion chain (redact, store, classify, reduce,
-	// recommend, guard, metrics) to the shared pipeline so the MCP tool and
-	// the CLI artifact add command emit byte-identical envelopes.
+	// recommend, guard, metrics, ledger) to the shared pipeline so the MCP tool
+	// and the CLI artifact add command emit byte-identical envelopes.
 	responseText, err := pipeline.Process(pipeline.Deps{
 		Store:      s.artStore,
 		DB:         s.db,
@@ -381,6 +407,8 @@ func (s *Server) execute(command, cwd string) (*toolCallResult, error) {
 		Registry:   s.reducers,
 		Redactor:   s.redactor,
 		SessionID:  s.sessionID,
+		Harness:    "mcp",
+		CallRef:    idempotencyRef(reqID),
 	}, output, command, cwd, exitCode, "mcp_costmax_run")
 	if err != nil {
 		return nil, err
@@ -422,6 +450,13 @@ func (s *Server) handleResourceRead(req jsonRPCRequest) jsonRPCResponse {
 	raw, err := s.artStore.RetrieveByDigest(meta.ContentDigest)
 	if err != nil {
 		return errorResponse(req.ID, -32602, "Artifact read error: "+err.Error())
+	}
+
+	// Serving the full artifact back to the model is a rehydration event.
+	// Flip the ledger flag on the original call row so reports can separate
+	// "evidence stored" from "evidence read back".
+	if err := s.db.MarkLedgerRehydrated(artifactID); err != nil {
+		return errorResponse(req.ID, -32602, "rehydration ledger: "+err.Error())
 	}
 
 	return jsonRPCResponse{
@@ -469,6 +504,20 @@ func rawToID(raw json.RawMessage) any {
 		return s
 	}
 	return nil
+}
+
+// idempotencyRef derives a stable per-request ledger reference from the
+// JSON-RPC request id. A replayed request (same id) re-derives the same key,
+// so the ledger can never double count it. A request without an id (a
+// notification) carries no stable identity, so it returns "" and the pipeline
+// assigns a fresh per-call reference — distinct calls are never collapsed
+// under a shared ambiguous key.
+func idempotencyRef(raw json.RawMessage) string {
+	id := rawToID(raw)
+	if id == nil {
+		return ""
+	}
+	return fmt.Sprintf("jsonrpc:%v", id)
 }
 
 func mkdirAll(path string, perm os.FileMode) error {

@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 func opencodeConfigPath() (string, error) {
@@ -437,15 +436,14 @@ func installOpenCodeMCP() (string, string, error) {
 	}
 
 	if len(data) > 0 {
-		backup := fmt.Sprintf("%s.costmaxx.bak.%s", configPath, time.Now().UTC().Format("20060102T150405Z"))
-		if err := os.WriteFile(backup, data, 0600); err != nil {
+		if _, err := backupConfig(configPath, data); err != nil {
 			return "", "", fmt.Errorf("back up opencode config: %w", err)
 		}
 	}
 
 	if !validateJSONC(newText) {
 		if len(data) > 0 {
-			_ = os.WriteFile(configPath, data, 0600)
+			_ = writeConfigAtomic(configPath, data)
 		} else {
 			_ = os.Remove(configPath)
 		}
@@ -455,7 +453,7 @@ func installOpenCodeMCP() (string, string, error) {
 	if err := os.MkdirAll(filepath.Dir(configPath), 0700); err != nil {
 		return "", "", fmt.Errorf("create opencode config directory: %w", err)
 	}
-	if err := os.WriteFile(configPath, []byte(newText), 0600); err != nil {
+	if err := writeConfigAtomic(configPath, []byte(newText)); err != nil {
 		return "", "", fmt.Errorf("write opencode config: %w", err)
 	}
 	return configPath, "installed", nil
@@ -488,8 +486,7 @@ func uninstallOpenCodeMCP() (string, string, error) {
 		return "", "", fmt.Errorf("refusing to remove a non-CostMax \"costmaxx\" entry from opencode config")
 	}
 
-	backup := fmt.Sprintf("%s.costmaxx.bak.%s", configPath, time.Now().UTC().Format("20060102T150405Z"))
-	if err := os.WriteFile(backup, data, 0600); err != nil {
+	if _, err := backupConfig(configPath, data); err != nil {
 		return "", "", fmt.Errorf("back up opencode config: %w", err)
 	}
 
@@ -521,11 +518,11 @@ func uninstallOpenCodeMCP() (string, string, error) {
 	}
 
 	if !validateJSONC(newText) {
-		_ = os.WriteFile(configPath, data, 0600)
+		_ = writeConfigAtomic(configPath, data)
 		return "", "", fmt.Errorf("refusing to write invalid opencode config (result did not parse as JSON)")
 	}
 
-	if err := os.WriteFile(configPath, []byte(newText), 0600); err != nil {
+	if err := writeConfigAtomic(configPath, []byte(newText)); err != nil {
 		return "", "", fmt.Errorf("update opencode config: %w", err)
 	}
 	return configPath, "uninstalled", nil

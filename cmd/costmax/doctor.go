@@ -13,14 +13,18 @@ import (
 )
 
 // optionalChecks are doctor checks reported for information but not treated
-// as setup failures when missing. opencode_mcp_config is optional because
-// CostMax is fully functional with only the Codex MCP entry installed.
-var optionalChecks = map[string]bool{"opencode_mcp_config": true}
+// as setup failures when missing. opencode_mcp_config and hermes_mcp_config
+// are optional because CostMax is fully functional with only the Codex MCP
+// entry installed.
+var optionalChecks = map[string]bool{
+	"opencode_mcp_config": true,
+	"hermes_mcp_config":   true,
+}
 
 var doctorCmd = &cobra.Command{
 	Use:          "doctor",
 	SilenceUsage: true,
-	Short:        "Verify CostMax's Codex MCP setup",
+	Short:        "Verify CostMax's MCP setup across configured agents",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		results := doctorResults()
 		failed := false
@@ -81,6 +85,32 @@ func doctorResults() map[string]string {
 			results["opencode_mcp_config"] = "not installed"
 		} else {
 			results["opencode_mcp_config"] = "OK"
+		}
+	}
+
+	hmPath, err := hermesConfigPath()
+	if err != nil {
+		results["hermes_mcp_config"] = err.Error()
+	} else if data, readErr := os.ReadFile(hmPath); readErr != nil {
+		results["hermes_mcp_config"] = "not installed"
+	} else {
+		text := string(data)
+		keyIdx, parseErr := validateHermesConfig(text)
+		lines := strings.Split(text, "\n")
+		if parseErr != nil {
+			results["hermes_mcp_config"] = parseErr.Error()
+		} else if keyIdx < 0 {
+			results["hermes_mcp_config"] = "not installed"
+		} else {
+			blockEnd := yamlBlockEnd(lines, keyIdx)
+			serverIndent := serverIndentInBlock(lines, keyIdx+1, blockEnd)
+			es, ee, found := serverEntryRangeInBlock(lines, keyIdx+1, blockEnd, "costmaxx", serverIndent)
+			hmBinary, _ := os.Executable()
+			if !found || !isCostmaxHermesBlock(strings.Join(lines[es:ee], "\n"), hmBinary) {
+				results["hermes_mcp_config"] = "not installed"
+			} else {
+				results["hermes_mcp_config"] = "OK"
+			}
 		}
 	}
 

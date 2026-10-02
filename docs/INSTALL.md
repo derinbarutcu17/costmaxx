@@ -1,12 +1,13 @@
 # Installing CostMax
 
-CostMax is one binary, three integrations. Everything is local; every write
+CostMax is one binary, multiple integrations. Everything is local; every write
 to an existing config happens with a backup first.
 
 ## Prereqs
 
-- A `costmaxx` binary on `PATH`. From source:
-  `go install github.com/derinbarutcu17/costmaxx/cmd/costmax@latest`,
+- A `costmaxx` binary on `PATH`. From source (the package dir is `costmax`;
+  install it under the `costmaxx` name the rest of the docs use):
+  `go install github.com/derinbarutcu17/costmaxx/cmd/costmax@latest && mv "$(go env GOPATH)/bin/costmax" "$(go env GOPATH)/bin/costmaxx"`,
   or grab a release binary from the
   [Releases](https://github.com/derinbarutcu17/costmaxx/releases) page.
 - Storage defaults to `~/.costmax/` (SQLite metadata + content-addressed
@@ -20,7 +21,7 @@ costmaxx doctor
 ```
 
 `costmaxx install` writes this block to `~/.codex/config.toml`
-(backing up the file first — the backup path is printed):
+(backing up the file first — the backup is placed beside the config):
 
 ```toml
 [mcp_servers.costmaxx]
@@ -64,39 +65,42 @@ costmaxx install --target opencode
 Registers the MCP server block in your opencode config (`opencode.jsonc`,
 backed up first). The tool appears as `costmaxx_costmax_run`.
 
-### The auto-compression plugin
+### Scope and safety of `costmaxx install`
 
-A companion plugin auto-compresses bash tool results larger than a
-threshold into the same `cmx://artifact/<id>` envelope. It lives at
-`~/.config/opencode/plugins/costmaxx.ts` (global — applies to every
-project). The README and this doc are the contract; the plugin itself is a
-small TypeScript file — drop it in place if it is not already there:
+`costmaxx install` and `costmaxx uninstall` modify **exactly one config file**
+— the named MCP config entry for Codex (`~/.codex/config.toml`), opencode
+(`opencode.jsonc`), or Hermes (`config.yaml`). When an existing file is
+changed, install/uninstall also creates one timestamped backup beside it:
 
-```bash
-mkdir -p ~/.config/opencode/plugins
-# place the costmaxx.ts plugin file at ~/.config/opencode/plugins/costmaxx.ts
-```
+- the existing file is backed up first (`*.costmaxx.bak.<UTC-nanoseconds>`);
+- an existing non-CostMax entry with the same name is **never overwritten or
+  removed** — the command refuses and explains why;
+- hooks, plugins, and any other config are never installed or modified;
+- uninstall removes only the entry CostMax added.
 
-Behavior:
+### Auto-compression plugin: not shipped
 
-- Threshold: default 20,000 chars of tool output. Override with env
-  `COSTMAX_COMPRESS_THRESHOLD`, or set `[reduce] threshold` in
-  `~/.costmax/config.toml` — env wins.
-- Kill switch: `COSTMAX_DISABLE=1` disables compression entirely.
-- Nothing is discarded: the full raw output is stored locally, retrievable
-  with `costmaxx artifact retrieve <id>` or the MCP resource.
-- The artifact store is shared with Codex sessions.
+A companion opencode TypeScript plugin that auto-compresses bash tool results
+(`~/.config/opencode/plugins/costmaxx.ts`, threshold `COSTMAX_COMPRESS_THRESHOLD`
+or `[reduce] threshold`, kill switch `COSTMAX_DISABLE=1`) is **documented but
+not shipped in this repository** — no plugin file exists under `packages/` or
+the repo root. Until you install such a plugin yourself, opencode compresses
+only when the model calls `costmaxx_costmax_run` (or you pipe output through
+`costmaxx artifact add`). A third-party plugin is external to CostMax and is
+not covered by this repo's evidence-integrity guarantees.
 
 ### Verify
 
 ```bash
-costmaxx doctor   # checks artifact store, binary, codex + opencode config, handshake
+costmaxx doctor   # checks artifact store, binary, codex + opencode + hermes config, handshake
 ```
 
 ### Uninstall
 
 1. Remove the MCP block: `costmaxx uninstall --target opencode`
-2. Remove the plugin: `rm ~/.config/opencode/plugins/costmaxx.ts`
+2. If you installed the (external, non-shipped) auto-compression plugin
+   yourself, remove it the same way you added it:
+   `rm ~/.config/opencode/plugins/costmaxx.ts`
 
 ## Gemini CLI
 
@@ -117,6 +121,35 @@ gemini mcp list | grep costmaxx
 
 ```bash
 gemini mcp remove costmaxx --scope user
+```
+
+## Hermes
+
+```bash
+costmaxx install --target hermes
+```
+
+Registers a `costmaxx` server under the top-level `mcp_servers:` key in Hermes
+config (`config.yaml`, `HERMES_HOME` if set, else `~/.hermes/config.yaml`;
+backed up first). On the next Hermes restart the stdio MCP server is launched.
+Hermes' tools list names it `costmaxx:costmax_run`; the model-facing namespace
+is `mcp__costmaxx__costmax_run`.
+
+Hermes is **MCP client support**, not a bespoke adapter: no adapter code runs
+in Hermes, and MCP use is opt-in — Hermes only compresses when the model calls
+`mcp__costmaxx__costmax_run` (or the equivalent `costmaxx:costmax_run` handle)
+explicitly. Hermes has no Codex-style lifecycle hooks.
+
+### Verify
+
+```bash
+costmaxx doctor   # hermes_mcp_config is reported; it is informational, not required
+```
+
+### Uninstall
+
+```bash
+costmaxx uninstall --target hermes   # removes only the costmaxx mcp_servers entry it added
 ```
 
 ## Maintenance
@@ -181,7 +214,7 @@ and how to interpret it.
 ## Doctor, end to end
 
 ```bash
-costmaxx doctor                       # all targets (codex + opencode) + storage + handshake
+costmaxx doctor                       # all targets (codex + opencode + hermes) + storage + handshake
 gemini mcp list | grep costmaxx       # Gemini (if installed)
 ```
 

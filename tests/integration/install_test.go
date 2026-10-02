@@ -91,3 +91,48 @@ func TestInstallDoctorUninstallCleanCodexHome(t *testing.T) {
 		t.Fatalf("uninstall changed unrelated config or retained CostMax entry:\n%s", data)
 	}
 }
+
+// TestInstallRefusesForeignEntryAndTouchesOnlyMCPConfig proves install's scope
+// and safety contract: it refuses to overwrite or remove a non-CostMax entry
+// with the same name, writes no backup during a refusal, and never touches
+// hooks or plugin files.
+func TestInstallRefusesForeignEntryAndTouchesOnlyMCPConfig(t *testing.T) {
+	home := t.TempDir()
+	codexHome := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexHome, 0700); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(codexHome, "config.toml")
+	foreign := "[mcp_servers.costmaxx]\ncommand = \"/some/other/tool\"\n"
+	if err := os.WriteFile(configPath, []byte(foreign), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	install := exec.Command(costmaxBinary, "install")
+	install.Env = append(os.Environ(), "HOME="+home, "CODEX_HOME="+codexHome)
+	out, err := install.CombinedOutput()
+	if err == nil {
+		t.Fatalf("install must refuse to overwrite a foreign [mcp_servers.costmaxx] entry (exit 0):\n%s", out)
+	}
+	if !strings.Contains(string(out), "refusing") {
+		t.Errorf("install error should mention the refusal:\n%s", out)
+	}
+	data, rerr := os.ReadFile(configPath)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if string(data) != foreign {
+		t.Fatalf("install modified the foreign config:\n%s", data)
+	}
+	if backups, _ := filepath.Glob(configPath + ".costmaxx.bak.*"); len(backups) != 0 {
+		t.Errorf("a refusal must not create a backup, found %v", backups)
+	}
+
+	// Install never writes hooks or plugin files.
+	if _, err := os.Stat(filepath.Join(codexHome, "hooks.json")); !os.IsNotExist(err) {
+		t.Errorf("install created hooks.json (out of scope)")
+	}
+	if _, err := os.Stat(filepath.Join(home, ".config", "opencode", "plugins")); !os.IsNotExist(err) {
+		t.Errorf("install created opencode plugin files (out of scope)")
+	}
+}

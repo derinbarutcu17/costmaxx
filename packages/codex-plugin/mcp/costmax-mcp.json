@@ -1,8 +1,0 @@
-{
-  "costmaxx": {
-    "command": "costmaxx",
-    "args": ["mcp"],
-    "type": "stdio",
-    "description": "CostMax local command execution with automatic output reduction and artifact storage"
-  }
-}

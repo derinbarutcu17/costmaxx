@@ -1,7 +1,15 @@
 # CostMax benchmarks
 
 Methodology: [benchmark-methodology.md](benchmark-methodology.md) ·
-Retained run: [RESULTS.md](RESULTS.md) · Audit write-up: [VERIFICATION.md](VERIFICATION.md)
+Retained run: [RESULTS.md](RESULTS.md) · Audit write-up: [VERIFICATION.md](VERIFICATION.md) ·
+Organic adoption: [ADOPTION.md](ADOPTION.md)
+
+## Auditability
+
+The retained 2026-08-05 run's raw transcripts are **not committed in this
+checkout**, so the benchmark numbers below are historical documentation, not
+locally re-auditable evidence. See [RESULTS.md](RESULTS.md) for the exact
+blocker and the strict audit command (including the binary-hash check).
 
 ## Benchmark summary
 
@@ -34,7 +42,8 @@ python3 scripts/run-codex-eval.py --live --yes --binary /tmp/costmaxx \
   --preflight-runs 3 --repetitions 3 \
   --results-dir results/<utc-timestamp>-authoritative
 python3 scripts/verify-live-results.py results/<dir> \
-  --expected-cases 20 --expected-repetitions 3 --forbid-rehydration
+  --expected-cases 20 --expected-repetitions 3 --forbid-rehydration \
+  --expect-binary-sha "$(shasum -a 256 /tmp/costmaxx | cut -d' ' -f1)"
 ```
 
 The live run spends Codex API usage. Always audit the result directory with

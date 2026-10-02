@@ -177,7 +177,7 @@ What top projects actually do:
 - **uv has an install script** (`astral.sh/uv/install.sh`) — it must pick the right platform wheel and they target non-Go users; also atypical.
 
 For CostMax at v0.1.0:
-- `go install github.com/derinbarutcu17/costmaxx@latest` covers Go users with zero infrastructure.
+- `go install github.com/derinbarutcu17/costmaxx/cmd/costmax@latest` covers Go users with zero infrastructure; rename the resulting `costmax` binary to `costmaxx` for the documented commands.
 - The Releases page (raw binaries + checksums.txt) covers everyone else; the README links already work once assets exist.
 - A curl\|sh script is a security-sensitive artifact (pinning, checksums, trust) with zero users yet — pure liability.
 - Homebrew-core formula: a 30-minute PR later, and homebrew builds the bottles for you. One constraint: keep version injection a simple `-X main.version=` so the formula can do `go build -ldflags "-X main.version=#{version}"`. The wiring in 2d already satisfies this.
@@ -196,12 +196,13 @@ For CostMax at v0.1.0:
 **Verification after release** (module path `github.com/derinbarutcu17/costmaxx` already matches the public repo URL exactly — verified in `go.mod`):
 
 ```bash
-go install github.com/derinbarutcu17/costmaxx@v0.1.0   # exact version
-go install github.com/derinbarutcu17/costmaxx@latest   # latest stable
-costmaxx --version                                     # requires 2d wiring
+go install github.com/derinbarutcu17/costmaxx/cmd/costmax@v0.1.0   # exact version
+go install github.com/derinbarutcu17/costmaxx/cmd/costmax@latest   # latest stable
+mv "$(go env GOPATH)/bin/costmax" "$(go env GOPATH)/bin/costmaxx"
+costmaxx --version
 
 # proxy.golang.org can lag a few minutes after tagging; bypass with:
-GOPROXY=direct go install github.com/derinbarutcu17/costmaxx@v0.1.0
+GOPROXY=direct go install github.com/derinbarutcu17/costmaxx/cmd/costmax@v0.1.0
 ```
 
 If install fails with `unknown revision`: the tag isn't pushed — `git ls-remote --tags origin`.
@@ -255,7 +256,7 @@ and oh-my-posh both publish there):
 1. Claim a domain for the server (DNS verification in the registry UI).
 2. Add the registry PEM key as a `MCP_REGISTRY_PEM` repo secret.
 3. Add a publish workflow modeled on oh-my-posh's `.github/workflows/publish-mcp.yml`:
-   build `server.json` from `packages/codex-plugin/mcp/costmax-mcp.json`, run the
+   build `server.json` from `packages/codex-plugin/.mcp.json`, run the
    official `mcp-publisher` CLI (OIDC login + publish) on push to the manifest path.
 
 Do not add the workflow before the domain and secret exist — it would fail on

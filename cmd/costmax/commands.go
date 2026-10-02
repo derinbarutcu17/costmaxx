@@ -85,7 +85,7 @@ var evidenceShowCmd = &cobra.Command{
 			fmt.Printf("Range: lines %d-%d\n\n", start, end)
 		}
 
-		fmt.Println("[Use costmax evidence retrieve <id> for full content]")
+		fmt.Println("[Use costmax artifact retrieve <id> for full content]")
 		return nil
 	},
 }
@@ -104,7 +104,7 @@ var evidenceSearchCmd = &cobra.Command{
 
 var reportCmd = &cobra.Command{
 	Use:   "report <session-id>",
-	Short: "Generate a session report from persisted metrics (experimental)",
+	Short: "Generate a session report from the immutable call ledger",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		sessionID := args[0]
@@ -114,27 +114,54 @@ var reportCmd = &cobra.Command{
 			return fmt.Errorf("load events: %w", err)
 		}
 
-		rt, ct, ar, tc, err := db.GetSessionMetrics(sessionID)
+		// The session report derives from ledger rows by actual event
+		// timestamp; session_metrics is a compatibility read model only.
+		rows, err := db.LedgerRows(time.Time{}, time.Time{})
 		if err != nil {
-			return fmt.Errorf("load metrics: %w", err)
+			return fmt.Errorf("load ledger: %w", err)
+		}
+		var calls, reductionsApplied, artifacts, rehydrations, errors int
+		var rawTokens, modelTokens int64
+		for _, r := range rows {
+			if r.SessionID != sessionID {
+				continue
+			}
+			calls++
+			if r.ArtifactID != "" {
+				artifacts++
+			}
+			if r.ReductionApplied {
+				reductionsApplied++
+			}
+			if r.Rehydrated {
+				rehydrations++
+			}
+			if r.Outcome == "error" {
+				errors++
+			}
+			rawTokens += r.RawTokenEst
+			modelTokens += r.ModelVisibleTokenEst
 		}
 
 		fmt.Printf("Session: %s\n", sessionID)
 		fmt.Printf("Events:  %d\n\n", len(evts))
 
 		fmt.Println("Context Reduction")
-		if rt > 0 {
-			pct := float64(rt-ct) / float64(rt) * 100
-			fmt.Printf("  Eligible raw output:           %d estimated tokens\n", rt)
-			fmt.Printf("  Model-visible output:          %d estimated tokens\n", ct)
+		if rawTokens > 0 {
+			pct := float64(rawTokens-modelTokens) / float64(rawTokens) * 100
+			fmt.Printf("  Eligible raw output:           %d estimated tokens\n", rawTokens)
+			fmt.Printf("  Model-visible output:          %d estimated tokens\n", modelTokens)
 			fmt.Printf("  Reduction:                     %.1f%%\n", pct)
 		}
 
 		fmt.Println("\nEvidence")
-		fmt.Printf("  Stored artifacts:              %d\n", ar)
+		fmt.Printf("  Stored artifacts:              %d\n", artifacts)
+		fmt.Printf("  Reductions applied:            %d\n", reductionsApplied)
+		fmt.Printf("  Rehydrations:                  %d\n", rehydrations)
 
 		fmt.Println("\nTool calls")
-		fmt.Printf("  Total:                         %d\n", tc)
+		fmt.Printf("  Total (ledger):                %d\n", calls)
+		fmt.Printf("  Errors/fail-open:              %d\n", errors)
 
 		return nil
 	},
@@ -164,7 +191,7 @@ var disableCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		session, _ := cmd.Flags().GetBool("session")
 		if session {
-			fmt.Println("CostMax disabled for this session. Set COSTMAX_DISABLE=1 to disable.")
+			fmt.Println("CostMax session disabling is not implemented; set mode to observe globally instead.")
 		} else {
 			cfg.Mode = "observe"
 			cfg.Save(filepath.Join(cfg.Core.DataDir, "config.toml"))

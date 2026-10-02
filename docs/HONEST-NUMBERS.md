@@ -3,29 +3,51 @@
 CostMax's credibility is its best feature, so this page is the boring,
 uncomfortable version of its claims. Read this before quoting any number.
 
+## Three kinds of evidence — never mix them
+
+- **Personal usage.** Whatever `costmaxx savings` reports on one machine
+  measures that user's own stack (agent, model, workload). It is real
+  measurement of a single sample, not a benchmark and not a promise.
+- **Controlled fixtures.** The 20×3 evaluator run is a bounded, deterministic
+  quality/savings test on synthetic outputs. It is audited by re-parsing raw
+  transcripts, but it is not your workload and not general intelligence.
+- **Unavailable evidence.** Anything whose raw evidence is not present and
+  whose run cannot be reproduced is not a claim. The retained 2026-08-05 live
+  run is in this category from a clean checkout until its transcripts are
+  restored or a fresh run is produced (see docs/RESULTS.md). Do not quote it
+  as locally verified.
+
+Organic adoption (does a model *naturally* pick `costmax_run`?) is a separate
+experiment from the forced fixture evaluation and is reported separately.
+
 ## What the numbers mean
 
 - **They are `len(text)/4` estimates, not bills.** Model-visible tokens are
   computed as characters divided by four. Real tokenization is
   provider- and model-specific. The estimate is directionally honest — a
-  60.6% reduction in estimated input tokens is a real reduction in what
+  reduction in estimated input tokens is a real reduction in what
   gets sent to the model — but it is not an invoice, and it is not what you
   will see on a provider billing page.
 - **They are input-side only.** CostMax shrinks what the agent *reads*
   (tool output fed into the context window). It does nothing to the tokens
   the agent *writes* — your completion cost is untouched by design.
 - **They are one user's stack.** The "Live savings" numbers in the README
-  (392,748 → 51,820 tokens, 86.8% cut, 1.04 MB, 53 calls over 7 days) are
-  measured on the owner's machine: opencode + codex with
+  are measured on the owner's machine: opencode + codex with
   deepseek-v4-flash. Your workload, model, and agent will differ. Same
   direction, different magnitude.
+- **The ledger defines the words.** Every accepted call gets one immutable
+  row in `call_ledger` with an explicit outcome. "Reductions applied" means
+  the compact text was actually the final model-visible response — never a
+  stored artifact that the model never saw. "Attempted" and "applied" are
+  separate counters; so are passthroughs, guard downgrades, rehydrations, and
+  errors. `session_metrics` is a compatibility view, not the source of truth.
 - **The benchmark numbers are audited; the live numbers are
-  self-measured.** The 60.6% figure comes from 20 deterministic fixtures ×
-  3 repetitions, re-parsed from raw Codex transcripts by an independent
+  self-measured.** The controlled-fixture figure comes from 20 deterministic
+  fixtures × 3 repetitions, re-parsed from raw transcripts by an independent
   script (`scripts/verify-live-results.py`) that fails on any bypass,
-  direct command, or rehydration. The live numbers come from `costmaxx
-  savings` on the owner's stack. Both are honest; they are not the same
-  kind of evidence.
+  direct command, or rehydration, and now also on a binary-hash mismatch.
+  The live numbers come from `costmaxx savings` on the owner's stack. Both
+  are honest; they are not the same kind of evidence.
 
 ## What CostMax does NOT save
 
@@ -65,8 +87,11 @@ runs, build logs, diffs, file trees). On everything else, expect a wash.
 
 Don't trust the README; the tool is built to report on itself.
 
-1. **`costmaxx savings`** — aggregate savings across sessions (raw tokens,
-   model-visible tokens, calls, bytes kept out of context). This is the
+1. **`costmaxx savings`** — aggregate savings across calls by actual event
+   timestamp (`--since=0` for all history; the default window is 7 days).
+   It separates calls processed, artifacts stored, reductions attempted,
+   reductions applied, passthroughs, guard downgrades, rehydrations, and
+   errors, with token estimates and bytes kept out of context. This is the
    scoreboard.
 2. **Daily snapshots** — the maintenance launchd job in
    [docs/INSTALL.md](INSTALL.md) appends

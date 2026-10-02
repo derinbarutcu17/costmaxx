@@ -3,6 +3,7 @@ package events
 import (
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/derinbarutcu17/costmaxx/internal/reducers/shared"
 )
@@ -31,27 +32,59 @@ func (c *Classifier) Classify(toolName, command, output string, exitCode int, si
 	return OutputTerminal
 }
 
-func (c *Classifier) classifyByTool(tool, command string) OutputCategory {
-	name := strings.ToLower(filepath.Base(strings.Fields(tool)[0]))
-	cmd := strings.ToLower(command)
+// commandTokens splits a shell command into word tokens. Matching on exact
+// tokens (instead of substrings) removes the false positives where a path like
+// /tmp/test-data or a file like build-notes.md contained a keyword.
+func commandTokens(cmd string) []string {
+	return strings.FieldsFunc(cmd, func(r rune) bool {
+		return unicode.IsSpace(r) || strings.ContainsRune(";&|<>()\"'`", r)
+	})
+}
 
-	if strings.Contains(cmd, "test") || strings.Contains(cmd, "jest ") || strings.Contains(cmd, "vitest ") || strings.Contains(cmd, "pytest ") || strings.Contains(cmd, "go test ") || strings.Contains(cmd, "cargo test") || strings.Contains(cmd, "mocha ") || strings.Contains(cmd, "rspec ") {
+func (c *Classifier) classifyByTool(tool, command string) OutputCategory {
+	fields := strings.Fields(tool)
+	name := ""
+	if len(fields) > 0 {
+		// Malformed tool names (empty or whitespace-only) have no binary to
+		// derive a category from; the command token matcher below still runs,
+		// so classification stays correct from the command alone.
+		name = strings.ToLower(filepath.Base(fields[0]))
+	}
+	cmd := strings.ToLower(command)
+	tokens := commandTokens(cmd)
+	has := func(names ...string) bool {
+		for _, t := range tokens {
+			for _, n := range names {
+				if t == n {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	hasPrefix := func(prefixes ...string) bool {
+		for _, p := range prefixes {
+			if strings.HasPrefix(cmd, p) {
+				return true
+			}
+		}
+		return false
+	}
+
+	if has("test", "jest", "vitest", "mocha", "rspec", "pytest") || hasPrefix("go test ", "cargo test") || strings.Contains(name, "test") {
 		return OutputTest
 	}
-	if strings.Contains(cmd, "build") || strings.Contains(cmd, "tsc ") || strings.Contains(cmd, "cargo build") || strings.Contains(cmd, "go build") || strings.Contains(cmd, "make ") || strings.Contains(cmd, "compile") {
+	if has("build", "tsc", "make", "compile", "cmake", "ninja", "gradle") || hasPrefix("go build", "cargo build") || strings.Contains(name, "build") {
 		return OutputBuild
 	}
-	if strings.HasPrefix(cmd, "git diff") || strings.HasPrefix(cmd, "diff ") {
+	if hasPrefix("git diff", "diff ") {
 		return OutputDiff
 	}
-	if strings.HasPrefix(cmd, "rg ") || strings.HasPrefix(cmd, "grep ") || strings.HasPrefix(cmd, "ag ") || strings.HasPrefix(cmd, "find ") && strings.Contains(cmd, "name") {
+	if has("rg", "grep", "ag", "find", "ack", "ripgrep") {
 		return OutputSearch
 	}
-	if strings.Contains(cmd, "eslint ") || strings.Contains(cmd, "tslint ") || strings.Contains(cmd, "ruff ") || strings.Contains(cmd, "flake8 ") || strings.Contains(cmd, "golangci") || strings.Contains(cmd, "clippy ") {
+	if has("eslint", "tslint", "ruff", "flake8", "golangci", "golangci-lint", "clippy", "shellcheck", "hadolint") {
 		return OutputLint
-	}
-	if strings.Contains(name, "test") || strings.Contains(cmd, "test") {
-		return OutputTest
 	}
 
 	return ""
@@ -80,7 +113,10 @@ func (c *Classifier) classifyBySignature(output string) OutputCategory {
 		return OutputBuild
 	}
 
-	if strings.HasPrefix(output, "{") || strings.HasPrefix(output, "[") {
+	// JSON signatures may carry leading whitespace (pretty-printed streams,
+	// command wrappers); ignore it before deciding the shape.
+	trimmed := strings.TrimLeft(output, " \t\r\n")
+	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
 		return OutputJSON
 	}
 

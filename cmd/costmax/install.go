@@ -12,9 +12,93 @@ import (
 
 var installTarget string
 
+// backupConfig writes an exclusive, timestamped copy of an existing config.
+// Nanosecond precision plus O_EXCL prevents concurrent installs from
+// overwriting one another's recovery point.
+func backupConfig(path string, data []byte) (string, error) {
+	stamp := time.Now().UTC().Format("20060102T150405.000000000Z")
+	for attempt := 0; attempt < 100; attempt++ {
+		suffix := stamp
+		if attempt > 0 {
+			suffix = fmt.Sprintf("%s.%d", stamp, attempt)
+		}
+		backup := fmt.Sprintf("%s.costmaxx.bak.%s", path, suffix)
+		file, err := os.OpenFile(backup, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		if os.IsExist(err) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		ok := false
+		defer func() {
+			if !ok {
+				_ = os.Remove(backup)
+			}
+		}()
+		if _, err := file.Write(data); err != nil {
+			_ = file.Close()
+			return "", err
+		}
+		if err := file.Sync(); err != nil {
+			_ = file.Close()
+			return "", err
+		}
+		if err := file.Close(); err != nil {
+			return "", err
+		}
+		ok = true
+		return backup, nil
+	}
+	return "", fmt.Errorf("could not allocate a unique backup path for %s", path)
+}
+
+// writeConfigAtomic replaces a config via a same-directory temp file and
+// rename, so an interrupted write cannot leave a truncated configuration.
+func writeConfigAtomic(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".costmaxx-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	keep := false
+	defer func() {
+		if !keep {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if err := tmp.Chmod(0600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	keep = true
+	// Best-effort directory sync makes the rename durable on filesystems that
+	// support it without turning a successful config update into a false error.
+	if dirFile, err := os.Open(dir); err == nil {
+		_ = dirFile.Sync()
+		_ = dirFile.Close()
+	}
+	return nil
+}
+
 var installCmd = &cobra.Command{
 	Use:   "install",
-	Short: "Install the CostMax MCP entry into Codex",
+	Short: "Install the CostMax MCP entry into an agent config",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var (
 			path   string
@@ -26,8 +110,10 @@ var installCmd = &cobra.Command{
 			path, status, err = installCodexMCP()
 		case "opencode":
 			path, status, err = installOpenCodeMCP()
+		case "hermes":
+			path, status, err = installHermesMCP()
 		default:
-			return fmt.Errorf("unknown target %q (expected codex or opencode)", installTarget)
+			return fmt.Errorf("unknown target %q (expected codex, opencode, or hermes)", installTarget)
 		}
 		if err != nil {
 			return err
@@ -41,7 +127,7 @@ var uninstallTarget string
 
 var uninstallCmd = &cobra.Command{
 	Use:   "uninstall",
-	Short: "Remove only the CostMax MCP entry from Codex",
+	Short: "Remove only the CostMax MCP entry from an agent config",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var (
 			path   string
@@ -53,8 +139,10 @@ var uninstallCmd = &cobra.Command{
 			path, status, err = uninstallCodexMCP()
 		case "opencode":
 			path, status, err = uninstallOpenCodeMCP()
+		case "hermes":
+			path, status, err = uninstallHermesMCP()
 		default:
-			return fmt.Errorf("unknown target %q (expected codex or opencode)", uninstallTarget)
+			return fmt.Errorf("unknown target %q (expected codex, opencode, or hermes)", uninstallTarget)
 		}
 		if err != nil {
 			return err
@@ -129,8 +217,7 @@ func installCodexMCP() (string, string, error) {
 		return "", "", fmt.Errorf("create Codex config directory: %w", err)
 	}
 	if len(data) > 0 {
-		backup := fmt.Sprintf("%s.costmaxx.bak.%s", configPath, time.Now().UTC().Format("20060102T150405Z"))
-		if err := os.WriteFile(backup, data, 0600); err != nil {
+		if _, err := backupConfig(configPath, data); err != nil {
 			return "", "", fmt.Errorf("back up Codex config: %w", err)
 		}
 	}
@@ -144,7 +231,7 @@ func installCodexMCP() (string, string, error) {
 	if text != "" {
 		text += "\n"
 	}
-	if err := os.WriteFile(configPath, []byte(text+costmaxMCPBlock(binary)), 0600); err != nil {
+	if err := writeConfigAtomic(configPath, []byte(text+costmaxMCPBlock(binary))); err != nil {
 		return "", "", fmt.Errorf("write Codex config: %w", err)
 	}
 	return configPath, "installed", nil
@@ -170,7 +257,7 @@ func uninstallCodexMCP() (string, string, error) {
 	if !isCostmaxMCPBlock(text[start:end]) {
 		return "", "", fmt.Errorf("refusing to remove a non-CostMax [mcp_servers.costmaxx] entry")
 	}
-	if err := os.WriteFile(configPath, []byte(strings.TrimLeft(text[:start]+text[end:], "\n")), 0600); err != nil {
+	if err := writeConfigAtomic(configPath, []byte(strings.TrimLeft(text[:start]+text[end:], "\n"))); err != nil {
 		return "", "", fmt.Errorf("update Codex config: %w", err)
 	}
 	return configPath, "uninstalled", nil
